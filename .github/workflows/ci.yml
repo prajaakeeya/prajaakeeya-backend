@@ -59,3 +59,30 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  # Dependency CVE scan — surfaces known vulnerabilities on every PR. Marked
+  # continue-on-error so transitive advisories (mostly in build tooling) stay
+  # VISIBLE without blocking merges; Dependabot opens the remediation PRs.
+  security-audit:
+    name: Dependency audit (non-blocking)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Audit production dependencies (high+)
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Full audit report (all deps, informational)
+        if: always()
+        run: npm audit || true

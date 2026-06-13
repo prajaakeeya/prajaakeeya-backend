@@ -1,0 +1,23 @@
+version: 2
+updates:
+  # Backend npm dependencies — weekly PRs that bump vulnerable/outdated packages
+  # (the ongoing remediation path for the advisories surfaced by `npm audit`).
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "security"
+    commit-message:
+      prefix: "deps"
+      prefix-development: "deps-dev"
+
+  # Keep GitHub Actions (CI/deploy workflows) pinned to current, patched versions.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "ci"
