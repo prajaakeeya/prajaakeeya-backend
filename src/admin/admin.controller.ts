@@ -19,9 +19,11 @@ import {
   ApiQuery,
 } from "@nestjs/swagger";
 import { JwtAuthGuard } from "../common/guards/jwt-auth.guard";
+import { RolesGuard } from "../common/guards/roles.guard";
+import { Roles } from "../common/decorators/roles.decorator";
 import { AdminService } from "./admin.service";
 import { UpdateReportStatusDto } from "../users/dto/update-report-status.dto";
-import { UpdateUserDto } from "../users/dto/update-user.dto";
+import { AdminUpdateUserDto } from "../users/dto/admin-update-user.dto";
 import { CreateWardMeetingDto } from "../wards/dto/create-ward-meeting.dto";
 import { UpdateWardMeetingDto } from "../wards/dto/update-ward-meeting.dto";
 import { SetVotingWindowDto } from "../votes/dto/set-voting-window.dto";
@@ -35,7 +37,8 @@ import { CreateGramaPanchayatDto } from "../grama-panchayat/dto/create-grama-pan
 
 @ApiTags("Admin")
 @Controller("admin")
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles("admin")
 @ApiBearerAuth()
 export class AdminController {
   constructor(private readonly adminService: AdminService) {}
@@ -133,7 +136,7 @@ export class AdminController {
   @ApiResponse({ status: 200, description: "User updated successfully" })
   @ApiResponse({ status: 404, description: "User not found" })
   @ApiResponse({ status: 401, description: "Unauthorized" })
-  updateUser(@Param("id") id: string, @Body() dto: UpdateUserDto) {
+  updateUser(@Param("id") id: string, @Body() dto: AdminUpdateUserDto) {
     return this.adminService.updateUser(+id, dto);
   }
 

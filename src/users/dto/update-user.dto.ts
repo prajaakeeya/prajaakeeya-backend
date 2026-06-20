@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsEnum, IsNumber } from "class-validator";
+import { IsString, IsOptional, IsNumber } from "class-validator";
 import { ApiProperty } from "@nestjs/swagger";
 import { Type } from "class-transformer";
 
@@ -66,24 +66,6 @@ export class UpdateUserDto {
   @IsNumber()
   @IsOptional()
   wardId?: number;
-
-  @ApiProperty({
-    description: "User role",
-    enum: ["voter", "aspirant", "admin"],
-    example: "voter",
-    required: false,
-  })
-  @IsEnum(["voter", "aspirant", "admin"])
-  @IsOptional()
-  role?: "voter" | "aspirant" | "admin";
-
-  @ApiProperty({
-    description: "Block status",
-    example: false,
-    required: false,
-  })
-  @IsOptional()
-  isBlocked?: boolean;
 
   @ApiProperty({
     description: "Profile picture URL",
