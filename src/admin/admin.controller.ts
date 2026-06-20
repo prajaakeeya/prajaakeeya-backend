@@ -19,6 +19,7 @@ import {
   ApiQuery,
 } from "@nestjs/swagger";
 import { JwtAuthGuard } from "../common/guards/jwt-auth.guard";
+import { Throttle } from "@nestjs/throttler";
 import { AdminService } from "./admin.service";
 import { UpdateReportStatusDto } from "../users/dto/update-report-status.dto";
 import { UpdateUserDto } from "../users/dto/update-user.dto";
@@ -32,6 +33,11 @@ import { CreateAssemblyDto } from "../geography/dto/create-assembly.dto";
 import { CreateMunicipalityDto } from "../geography/dto/create-municipality.dto";
 import { CreateWardDto } from "../wards/dto/create-ward.dto";
 import { CreateGramaPanchayatDto } from "../grama-panchayat/dto/create-grama-panchayat.dto";
+
+// Destructive user-lifecycle actions get a tighter per-IP limit than the
+// global default so an abusive/compromised session can't mass-block or
+// mass-delete users quickly.
+const DESTRUCTIVE_THROTTLE = { default: { ttl: 60_000, limit: 10 } };
 
 @ApiTags("Admin")
 @Controller("admin")
@@ -138,33 +144,36 @@ export class AdminController {
   }
 
   @Patch("users/:id/block")
+  @Throttle(DESTRUCTIVE_THROTTLE)
   @ApiOperation({ summary: "Block a user" })
   @ApiParam({ name: "id", type: "number", description: "User ID" })
   @ApiResponse({ status: 200, description: "User blocked successfully" })
   @ApiResponse({ status: 404, description: "User not found" })
   @ApiResponse({ status: 401, description: "Unauthorized" })
-  blockUser(@Param("id") id: string) {
-    return this.adminService.blockUser(+id);
+  blockUser(@Param("id") id: string, @Req() req: any) {
+    return this.adminService.blockUser(+id, req.user?.id);
   }
 
   @Patch("users/:id/unblock")
+  @Throttle(DESTRUCTIVE_THROTTLE)
   @ApiOperation({ summary: "Unblock a user" })
   @ApiParam({ name: "id", type: "number", description: "User ID" })
   @ApiResponse({ status: 200, description: "User unblocked successfully" })
   @ApiResponse({ status: 404, description: "User not found" })
   @ApiResponse({ status: 401, description: "Unauthorized" })
-  unblockUser(@Param("id") id: string) {
-    return this.adminService.unblockUser(+id);
+  unblockUser(@Param("id") id: string, @Req() req: any) {
+    return this.adminService.unblockUser(+id, req.user?.id);
   }
 
   @Delete("users/:id")
+  @Throttle(DESTRUCTIVE_THROTTLE)
   @ApiOperation({ summary: "Delete a user" })
   @ApiParam({ name: "id", type: "number", description: "User ID" })
   @ApiResponse({ status: 200, description: "User deleted successfully" })
   @ApiResponse({ status: 404, description: "User not found" })
   @ApiResponse({ status: 401, description: "Unauthorized" })
-  deleteUser(@Param("id") id: string) {
-    return this.adminService.deleteUser(+id);
+  deleteUser(@Param("id") id: string, @Req() req: any) {
+    return this.adminService.deleteUser(+id, req.user?.id);
   }
 
   @Get("wards/:wardId/users")

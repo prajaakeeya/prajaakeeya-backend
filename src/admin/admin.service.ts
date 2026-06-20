@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { WardsService } from "../wards/wards.service";
 import { VoterRollService } from "../voter-roll/voter-roll.service";
 import { AspirantsService } from "../aspirants/aspirants.service";
@@ -24,6 +24,8 @@ import { CreateGramaPanchayatDto } from "../grama-panchayat/dto/create-grama-pan
 
 @Injectable()
 export class AdminService {
+  private readonly logger = new Logger(AdminService.name);
+
   constructor(
     private readonly wardsService: WardsService,
     private readonly voterRollService: VoterRollService,
@@ -99,16 +101,19 @@ export class AdminService {
     return this.usersService.updateUser(id, dto);
   }
 
-  async blockUser(id: number) {
+  async blockUser(id: number, adminId?: number) {
+    this.logger.warn(`admin ${adminId ?? "?"} blocked user ${id}`);
     return this.usersService.blockUser(id);
   }
 
-  async unblockUser(id: number) {
+  async unblockUser(id: number, adminId?: number) {
+    this.logger.warn(`admin ${adminId ?? "?"} unblocked user ${id}`);
     return this.usersService.unblockUser(id);
   }
 
-  async deleteUser(id: number) {
-    return this.usersService.deleteUser(id);
+  async deleteUser(id: number, adminId?: number) {
+    this.logger.warn(`admin ${adminId ?? "?"} soft-deleted user ${id}`);
+    return this.usersService.softDeleteUser(id);
   }
 
   async getUsersByWard(wardId: number, page?: number, limit?: number) {
