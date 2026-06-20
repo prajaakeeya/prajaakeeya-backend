@@ -88,9 +88,9 @@ export class CreateAspirantDto {
   @IsString()
   @IsOptional()
   @ValidateIf((o) => o.phone !== "" && o.phone != null)
-  @Matches(/^[6-9]\d{9}$/, {
-    message: "phone must be a valid 10-digit Indian mobile number",
-  })
+  @Matches(/^(?!(\d)\1{9})(?!9876543210)[6-9]\d{9}$/, {
+  message: "Phone number must be a valid 10-digit mobile number and cannot be a common dummy pattern",
+})
   phone?: string;
 
   @ApiPropertyOptional({
