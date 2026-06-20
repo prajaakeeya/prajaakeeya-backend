@@ -432,10 +432,11 @@ export class UsersService {
     const query = this.repo
       .createQueryBuilder("user")
       .leftJoinAndSelect("user.ward", "ward")
+      .where("user.isSelfDeleted = false")
       .orderBy("user.createdAt", "DESC");
 
     if (wardId) {
-      query.where("user.wardId = :wardId", { wardId });
+      query.andWhere("user.wardId = :wardId", { wardId });
     }
 
     return query.getMany();
@@ -578,6 +579,23 @@ export class UsersService {
     return saved;
   }
 
+  /**
+   * Admin soft-delete: deactivate the account (recoverable via
+   * reactivateAccount) and revoke its sessions instead of hard-purging it.
+   * Reuses the existing isSelfDeleted flag, which auth/profile lookups already
+   * treat as "gone", and which #40's JWT check enforces on cache miss.
+   */
+  async softDeleteUser(id: number): Promise<{ message: string }> {
+    const user = await this.repo.findOne({ where: { id } });
+    if (!user) {
+      throw new NotFoundException("User not found");
+    }
+    user.isSelfDeleted = true;
+    await this.repo.save(user);
+    await this.revokeAllSessions(id).catch(() => undefined);
+    return { message: "User deactivated" };
+  }
+
   async deleteUser(id: number): Promise<void> {
     const user = await this.repo.findOne({ where: { id } });
 
@@ -642,7 +660,7 @@ export class UsersService {
     // (matches the historical admin endpoint behaviour).
     if (page === undefined && limit === undefined) {
       return this.repo.find({
-        where: { wardId },
+        where: { wardId, isSelfDeleted: false },
         relations: ["ward"],
         order: { createdAt: "DESC" },
       });
@@ -651,7 +669,7 @@ export class UsersService {
     const safeLimit = Math.min(Math.max(limit ?? 50, 1), 200);
     const safePage = Math.max(page ?? 1, 1);
     const [data, total] = await this.repo.findAndCount({
-      where: { wardId },
+      where: { wardId, isSelfDeleted: false },
       relations: ["ward"],
       order: { createdAt: "DESC" },
       skip: (safePage - 1) * safeLimit,

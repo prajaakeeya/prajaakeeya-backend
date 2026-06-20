@@ -112,8 +112,8 @@ export class AdminService {
   }
 
   async deleteUser(id: number, adminId?: number) {
-    this.logger.warn(`admin ${adminId ?? "?"} deleted user ${id}`);
-    return this.usersService.deleteUser(id);
+    this.logger.warn(`admin ${adminId ?? "?"} soft-deleted user ${id}`);
+    return this.usersService.softDeleteUser(id);
   }
 
   async getUsersByWard(wardId: number, page?: number, limit?: number) {
