@@ -843,7 +843,7 @@ export class AspirantsService {
     return aspirants.map((aspirant) => {
       const { user, ...rest } = aspirant as any;
       const voteCount = voteCounts[aspirant.id] ?? 0;
-      return this.applyContactPrivacy({
+      return this.publicListView({
         ...rest,
         email: user?.email ?? null,
         voteCount,
@@ -1022,7 +1022,13 @@ export class AspirantsService {
       currentUser?.id != null &&
       aspirant.userId != null &&
       currentUser.id === aspirant.userId;
-    return isOwner ? result : this.applyContactPrivacy(result);
+    if (isOwner) return result;
+    // Admins keep full visibility (needed for document verification); every
+    // other viewer gets contact privacy plus sensitive documents/PII stripped.
+    const filtered = this.applyContactPrivacy(result);
+    return currentUser?.role === "admin"
+      ? filtered
+      : this.stripSensitiveFields(filtered);
   }
 
   async setMeetingLink(
@@ -1370,6 +1376,50 @@ export class AspirantsService {
     if (aspirant.allowPhone === false) delete (aspirant as any).phone;
     if (aspirant.allowWhatsapp === false) delete (aspirant as any).whatsappNumber;
     return aspirant;
+  }
+
+  // Identity/legal documents, their internal review state, and personal
+  // contact details must never appear on public or list responses. Owners
+  // (and admins, on the detail endpoint) see the full record; everyone else
+  // gets this stripped view. Public display photos (selfieUrl / recentPhotoUrl)
+  // are intentionally kept so candidate profiles still render.
+  private static readonly PUBLIC_STRIPPED_FIELDS = [
+    "epicCardUrl",
+    "epicCardBackUrl",
+    "addressProofUrl",
+    "resumeUrl",
+    "propertyDeclarationUrl",
+    "sopUrl",
+    "sopKannadaUrl",
+    "agreementUrl",
+    "codeOfConductUrl",
+    "epicCardStatus",
+    "epicCardBackStatus",
+    "addressProofStatus",
+    "resumeStatus",
+    "propertyDeclarationStatus",
+    "sopStatus",
+    "sopKannadaStatus",
+    "agreementStatus",
+    "codeOfConductStatus",
+    "recentPhotoStatus",
+    "selfieStatus",
+    "rejectionReasons",
+    "documentStatus",
+    "address",
+    "email",
+  ];
+
+  private stripSensitiveFields<T extends Record<string, any>>(aspirant: T): T {
+    if (!aspirant) return aspirant;
+    for (const field of AspirantsService.PUBLIC_STRIPPED_FIELDS) {
+      delete (aspirant as any)[field];
+    }
+    return aspirant;
+  }
+
+  private publicListView<T extends Record<string, any>>(aspirant: T): T {
+    return this.stripSensitiveFields(this.applyContactPrivacy(aspirant));
   }
 
   private emptyDistribution(): Record<number, number> {
