@@ -356,6 +356,7 @@ describe("AspirantsService — createVisit()", () => {
       "Meet voters",
       "Ward 5",
       "https://maps.example/x",
+      { id: 1, role: "admin" },
     );
 
     expect(create).toHaveBeenCalledWith(
