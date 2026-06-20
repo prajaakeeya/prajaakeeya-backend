@@ -18,7 +18,6 @@ import {
 } from "@nestjs/swagger";
 import { AuthService } from "./auth.service";
 import { LoginDto } from "./dto/login.dto";
-import { AdminSeedDto } from "./dto/admin-seed.dto";
 import { VerifyOtpDto } from "./dto/verify-otp.dto";
 import { AspirantSendOtpDto } from "./dto/aspirant-send-otp.dto";
 import { AspirantVerifyOtpDto } from "./dto/aspirant-verify-otp.dto";
@@ -74,13 +73,6 @@ export class AuthController {
   @ApiResponse({ status: 401, description: "Invalid OTP" })
   adminVerifyOtp(@Body() dto: VerifyOtpDto) {
     return this.authService.adminVerifyOtp(dto);
-  }
-
-  @Post('admin/seed')
-  @ApiOperation({ summary: 'Seed initial admin user (create admin with password)' })
-  @ApiResponse({ status: 201, description: 'Admin created successfully' })
-  seedAdmin(@Body() dto: AdminSeedDto) {
-    return this.authService.seedAdmin(dto.email!, dto.name, dto.password);
   }
 
   @Get("google")
