@@ -14,7 +14,7 @@ import { User } from "./user.entity";
 import { Report } from "./report.entity";
 import { UserSignedDocument } from "./user-signed-document.entity";
 import { CreateReportDto } from "./dto/create-report.dto";
-import { UpdateUserDto } from "./dto/update-user.dto";
+import { AdminUpdateUserDto } from "./dto/admin-update-user.dto";
 import { Vote } from "../votes/vote.entity";
 import { Message } from "../forum/message.entity";
 import { AspirantMessage } from "../aspirants/aspirant-message.entity";
@@ -472,7 +472,7 @@ export class UsersService {
     return user;
   }
 
-  async updateUser(id: number, dto: UpdateUserDto): Promise<User> {
+  async updateUser(id: number, dto: AdminUpdateUserDto): Promise<User> {
     const user = await this.repo.findOne({ where: { id } });
 
     if (!user) {

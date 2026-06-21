@@ -23,7 +23,7 @@ import { RolesGuard } from "../common/guards/roles.guard";
 import { Roles } from "../common/decorators/roles.decorator";
 import { AdminService } from "./admin.service";
 import { UpdateReportStatusDto } from "../users/dto/update-report-status.dto";
-import { UpdateUserDto } from "../users/dto/update-user.dto";
+import { AdminUpdateUserDto } from "../users/dto/admin-update-user.dto";
 import { CreateWardMeetingDto } from "../wards/dto/create-ward-meeting.dto";
 import { UpdateWardMeetingDto } from "../wards/dto/update-ward-meeting.dto";
 import { SetVotingWindowDto } from "../votes/dto/set-voting-window.dto";
@@ -136,7 +136,7 @@ export class AdminController {
   @ApiResponse({ status: 200, description: "User updated successfully" })
   @ApiResponse({ status: 404, description: "User not found" })
   @ApiResponse({ status: 401, description: "Unauthorized" })
-  updateUser(@Param("id") id: string, @Body() dto: UpdateUserDto) {
+  updateUser(@Param("id") id: string, @Body() dto: AdminUpdateUserDto) {
     return this.adminService.updateUser(+id, dto);
   }
 

@@ -9,7 +9,7 @@ import { ElectionsService } from "../elections/elections.service";
 import { ParliamentaryService } from "../geography/parliamentary.service";
 import { AssemblyService } from "../geography/assembly.service";
 import { MunicipalityService } from "../geography/municipality.service";
-import { UpdateUserDto } from "../users/dto/update-user.dto";
+import { AdminUpdateUserDto } from "../users/dto/admin-update-user.dto";
 import { CreateWardMeetingDto } from "../wards/dto/create-ward-meeting.dto";
 import { UpdateWardMeetingDto } from "../wards/dto/update-ward-meeting.dto";
 import { SetVotingWindowDto } from "../votes/dto/set-voting-window.dto";
@@ -95,7 +95,7 @@ export class AdminService {
     return this.usersService.getUserById(id);
   }
 
-  async updateUser(id: number, dto: UpdateUserDto) {
+  async updateUser(id: number, dto: AdminUpdateUserDto) {
     return this.usersService.updateUser(id, dto);
   }
 
