@@ -144,6 +144,7 @@ export class MediaController {
   @ApiResponse({ status: 200, description: "Document uploaded successfully" })
   @ApiResponse({ status: 404, description: "Aspirant not found" })
   async uploadAspirantDocument(
+    @Req() req: any,
     @Param("aspirantId", ParseIntPipe) aspirantId: number,
     @Body() dto: UploadAspirantDocumentDto,
     @UploadedFile() file: Express.Multer.File,
@@ -152,6 +153,7 @@ export class MediaController {
       aspirantId,
       dto.documentType,
       file,
+      req.user,
     );
   }
 

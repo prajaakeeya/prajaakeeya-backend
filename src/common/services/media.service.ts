@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
@@ -66,12 +67,22 @@ export class MediaService {
     aspirantId: number,
     documentType: string,
     file: Express.Multer.File,
+    user?: { id?: number; role?: string },
   ): Promise<Aspirant> {
     const aspirant = await this.aspirantRepo.findOne({
       where: { id: aspirantId },
     });
     if (!aspirant) {
       throw new NotFoundException("Aspirant not found");
+    }
+    // Only the owning aspirant (or an admin) may upload/replace its documents.
+    if (
+      user?.role !== "admin" &&
+      (user?.id == null || aspirant.userId !== user.id)
+    ) {
+      throw new ForbiddenException(
+        "You do not have permission to upload documents for this aspirant",
+      );
     }
 
     // Snapshot the document-completion state before this upload so we can

@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
   Inject,
   forwardRef,
 } from "@nestjs/common";
@@ -493,7 +494,32 @@ export class AspirantsService {
     return this.bookingRepo.save(booking);
   }
 
-  async listBookingsForAspirant(aspirantId: number) {
+  /**
+   * Authorize a mutation/read scoped to a single aspirant: platform admins
+   * always pass; otherwise the caller must own the aspirant record. Throws
+   * NotFoundException when the aspirant doesn't exist and ForbiddenException
+   * when the caller is neither the owner nor an admin.
+   */
+  private async assertCanManageAspirant(
+    aspirantId: number,
+    user?: { id?: number; role?: string },
+  ): Promise<Aspirant> {
+    const aspirant = await this.repo.findOne({ where: { id: aspirantId } });
+    if (!aspirant) throw new NotFoundException("Aspirant not found");
+    if (user?.role === "admin") return aspirant;
+    if (user?.id == null || aspirant.userId !== user.id) {
+      throw new ForbiddenException(
+        "You do not have permission to manage this aspirant",
+      );
+    }
+    return aspirant;
+  }
+
+  async listBookingsForAspirant(
+    aspirantId: number,
+    user?: { id?: number; role?: string },
+  ) {
+    await this.assertCanManageAspirant(aspirantId, user);
     const bookings = await this.bookingRepo.find({
       where: { aspirantId },
       order: { createdAt: "DESC" },
@@ -526,9 +552,9 @@ export class AspirantsService {
     description?: string,
     location?: string,
     googleMapsLink?: string,
+    user?: { id?: number; role?: string },
   ) {
-    const aspirant = await this.repo.findOne({ where: { id: aspirantId } });
-    if (!aspirant) throw new NotFoundException("Aspirant not found");
+    const aspirant = await this.assertCanManageAspirant(aspirantId, user);
     const visit = this.visitRepo.create({
       aspirantId,
       startTime,
@@ -621,7 +647,13 @@ export class AspirantsService {
     };
   }
 
-  async getVisitResponses(visitId: number) {
+  async getVisitResponses(
+    visitId: number,
+    user?: { id?: number; role?: string },
+  ) {
+    const visit = await this.visitRepo.findOne({ where: { id: visitId } });
+    if (!visit) throw new NotFoundException("Visit not found");
+    await this.assertCanManageAspirant(visit.aspirantId, user);
     return this.visitResponseRepo.find({ where: { visitId } });
   }
 
@@ -1073,6 +1105,7 @@ export class AspirantsService {
     title?: string,
     description?: string,
     platform?: string,
+    user?: { id?: number; role?: string },
   ) {
     // Fetch all aspirants and verify they exist
     const aspirants = await this.repo.findByIds(aspirantIds);
@@ -1083,6 +1116,18 @@ export class AspirantsService {
       throw new NotFoundException(
         `Aspirants not found: ${missingIds.join(", ")}`,
       );
+    }
+
+    // Non-admins may only set meeting links for aspirant records they own.
+    if (user?.role !== "admin") {
+      const unauthorized =
+        user?.id == null ||
+        aspirants.some((a) => a.userId == null || a.userId !== user.id);
+      if (unauthorized) {
+        throw new ForbiddenException(
+          "You do not have permission to manage one or more of these aspirants",
+        );
+      }
     }
 
     // Create meetings for all aspirants
@@ -1110,7 +1155,13 @@ export class AspirantsService {
     });
   }
 
-  async completeMeeting(aspirantId: number, meetingId: number, notes: string) {
+  async completeMeeting(
+    aspirantId: number,
+    meetingId: number,
+    notes: string,
+    user?: { id?: number; role?: string },
+  ) {
+    await this.assertCanManageAspirant(aspirantId, user);
     const meeting = await this.meetingRepo.findOne({
       where: { id: meetingId, aspirantId },
     });
@@ -1121,11 +1172,33 @@ export class AspirantsService {
     return this.meetingRepo.findOne({ where: { id: meetingId } });
   }
 
-  async deleteMeetings(meetingIds: number[]) {
+  async deleteMeetings(
+    meetingIds: number[],
+    user?: { id?: number; role?: string },
+  ) {
     if (!meetingIds || meetingIds.length === 0) return { deleted: 0 };
     // verify meetings exist
     const meetings = await this.meetingRepo.findByIds(meetingIds);
     if (meetings.length === 0) return { deleted: 0 };
+
+    // Non-admins may only delete meetings belonging to aspirants they own.
+    if (user?.role !== "admin") {
+      if (user?.id == null) {
+        throw new ForbiddenException(
+          "You do not have permission to delete these meetings",
+        );
+      }
+      const aspirantIds = Array.from(new Set(meetings.map((m) => m.aspirantId)));
+      const owned = await this.repo.find({
+        where: { id: In(aspirantIds), userId: user.id },
+      });
+      if (owned.length !== aspirantIds.length) {
+        throw new ForbiddenException(
+          "You do not have permission to delete one or more of these meetings",
+        );
+      }
+    }
+
     const foundIds = meetings.map((m) => m.id);
     const toDelete = meetingIds.filter((id) => foundIds.includes(id));
     if (toDelete.length === 0) return { deleted: 0 };
@@ -1134,7 +1207,12 @@ export class AspirantsService {
     return { deleted: toDelete.length };
   }
 
-  async deleteVisit(aspirantId: number, visitId: number) {
+  async deleteVisit(
+    aspirantId: number,
+    visitId: number,
+    user?: { id?: number; role?: string },
+  ) {
+    await this.assertCanManageAspirant(aspirantId, user);
     const visit = await this.visitRepo.findOne({
       where: { id: visitId, aspirantId },
     });
