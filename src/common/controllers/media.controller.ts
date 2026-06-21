@@ -42,8 +42,15 @@ import {
 export class MediaController {
   constructor(private readonly mediaService: MediaService) {}
 
+  // Presigning an arbitrary key is a powerful primitive — it can mint a URL
+  // for ANY object in the bucket (other users' EPIC cards, address proofs,
+  // selfies, signed documents). It is not used by the web/PWA client, so it is
+  // restricted to admins. The requested lifetime is clamped to keep URLs short.
   @Get("presign")
-  @ApiOperation({ summary: "Get presigned URL for private S3 object" })
+  @Roles("admin")
+  @ApiOperation({
+    summary: "Get presigned URL for private S3 object (admin only)",
+  })
   @ApiQuery({
     name: "key",
     description: "S3 object key (e.g. profiles/20/file.jpg)",
@@ -51,15 +58,20 @@ export class MediaController {
   })
   @ApiQuery({
     name: "expires",
-    description: "Expiry in seconds (default 3600)",
+    description: "Expiry in seconds (default 3600, max 3600)",
     required: false,
   })
   @ApiResponse({ status: 200, description: "Presigned URL returned" })
+  @ApiResponse({ status: 403, description: "Forbidden - Admin role required" })
   async getPresignedUrl(
     @Query("key") key: string,
     @Query("expires") expires?: string,
   ) {
-    const exp = expires ? parseInt(expires, 10) : 3600;
+    const requested = expires ? parseInt(expires, 10) : 3600;
+    const exp = Math.min(
+      Math.max(Number.isFinite(requested) ? requested : 3600, 60),
+      3600,
+    );
     const url = await this.mediaService.getPresignedUrl(key, exp);
     return { url, expiresIn: exp };
   }
