@@ -457,13 +457,6 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
     return { token: await this.jwtService.signAsync(payload), user };
   }
 
-  async seedAdmin(email: string, name?: string, password?: string) {
-    if (process.env.NODE_ENV === "production") {
-      throw new ForbiddenException("Not allowed");
-    }
-    return this.usersService.upsertAdmin(email, name, password);
-  }
-
   async requestRegisterOtp(dto: LoginDto) {
     if (!dto.email) {
       throw new BadRequestException("Email is required");
