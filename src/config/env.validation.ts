@@ -60,6 +60,10 @@ class EnvironmentVariables {
 
   @IsString()
   @IsOptional()
+  COOKIE_SAMESITE?: string;
+
+  @IsString()
+  @IsOptional()
   REDIS_HOST?: string;
 
   @IsString()
