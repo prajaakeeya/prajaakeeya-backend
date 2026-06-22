@@ -1,5 +1,9 @@
 import "reflect-metadata";
-import { BadRequestException, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+} from "@nestjs/common";
 import { AspirantsService } from "./aspirants.service";
 
 /**
@@ -333,16 +337,31 @@ describe("AspirantsService — createBooking() (meeting request)", () => {
 describe("AspirantsService — createVisit()", () => {
   it("rejects when the aspirant does not exist", async () => {
     const service = buildService({ repo: { findOne: jest.fn(async () => null) } });
-    await expect(service.createVisit(54, 1780000000000)).rejects.toThrow(
-      NotFoundException,
-    );
+    await expect(
+      service.createVisit(54, 1780000000000, undefined, undefined, undefined, undefined, undefined, {
+        id: 57,
+        role: "voter",
+      }),
+    ).rejects.toThrow(NotFoundException);
+  });
+
+  it("rejects a caller who does not own the aspirant", async () => {
+    const service = buildService({
+      repo: { findOne: jest.fn(async () => ({ id: 54, userId: 999 })) },
+    });
+    await expect(
+      service.createVisit(54, 1780000000000, undefined, undefined, undefined, undefined, undefined, {
+        id: 57,
+        role: "voter",
+      }),
+    ).rejects.toThrow(ForbiddenException);
   });
 
   it("creates and saves the visit (notification is best-effort)", async () => {
     const create = jest.fn((x: any) => x);
     const save = jest.fn(async (x: any) => ({ id: 9, ...x }));
     const service = buildService({
-      repo: { findOne: jest.fn(async () => ({ id: 54 })) },
+      repo: { findOne: jest.fn(async () => ({ id: 54, userId: 57 })) },
       visitRepo: { create, save },
       // The post-save notify path throws on the noop deps but is swallowed —
       // the saved visit is still returned.
@@ -356,6 +375,7 @@ describe("AspirantsService — createVisit()", () => {
       "Meet voters",
       "Ward 5",
       "https://maps.example/x",
+      { id: 57, role: "voter" },
     );
 
     expect(create).toHaveBeenCalledWith(
@@ -368,6 +388,169 @@ describe("AspirantsService — createVisit()", () => {
     );
     expect(save).toHaveBeenCalled();
     expect(result).toMatchObject({ id: 9, title: "Door-to-door" });
+  });
+});
+
+describe("AspirantsService — completeMeeting()", () => {
+  it("rejects a caller who does not own the aspirant", async () => {
+    const service = buildService({
+      repo: { findOne: jest.fn(async () => ({ id: 54, userId: 999 })) },
+    });
+    await expect(
+      service.completeMeeting(54, 10, "done", { id: 57, role: "voter" }),
+    ).rejects.toThrow(ForbiddenException);
+  });
+
+  it("rejects when the meeting does not exist for the owner", async () => {
+    const service = buildService({
+      repo: { findOne: jest.fn(async () => ({ id: 54, userId: 57 })) },
+      meetingRepo: { findOne: jest.fn(async () => null) },
+    });
+    await expect(
+      service.completeMeeting(54, 10, "done", { id: 57, role: "voter" }),
+    ).rejects.toThrow(NotFoundException);
+  });
+
+  it("marks the meeting complete with notes for the owner", async () => {
+    const meeting: any = { id: 10, aspirantId: 54, completed: false, notes: null };
+    const save = jest.fn(async (x: any) => x);
+    const service = buildService({
+      repo: { findOne: jest.fn(async () => ({ id: 54, userId: 57 })) },
+      meetingRepo: {
+        findOne: jest.fn(async () => meeting),
+        save,
+      },
+    });
+
+    await service.completeMeeting(54, 10, "All done", { id: 57, role: "voter" });
+
+    expect(meeting.completed).toBe(true);
+    expect(meeting.notes).toBe("All done");
+    expect(save).toHaveBeenCalledWith(meeting);
+  });
+});
+
+describe("AspirantsService — deleteVisit()", () => {
+  it("rejects a caller who does not own the aspirant", async () => {
+    const service = buildService({
+      repo: { findOne: jest.fn(async () => ({ id: 54, userId: 999 })) },
+    });
+    await expect(
+      service.deleteVisit(54, 7, { id: 57, role: "voter" }),
+    ).rejects.toThrow(ForbiddenException);
+  });
+
+  it("deletes the visit for the owner", async () => {
+    const deleteFn = jest.fn(async () => ({}));
+    const service = buildService({
+      repo: { findOne: jest.fn(async () => ({ id: 54, userId: 57 })) },
+      visitRepo: {
+        findOne: jest.fn(async () => ({ id: 7, aspirantId: 54 })),
+        delete: deleteFn,
+      },
+    });
+
+    const result = await service.deleteVisit(54, 7, { id: 57, role: "voter" });
+
+    expect(deleteFn).toHaveBeenCalledWith(7);
+    expect(result).toEqual({ deleted: 1 });
+  });
+
+  it("allows an admin to delete any aspirant's visit", async () => {
+    const deleteFn = jest.fn(async () => ({}));
+    const service = buildService({
+      repo: { findOne: jest.fn(async () => ({ id: 54, userId: 999 })) },
+      visitRepo: {
+        findOne: jest.fn(async () => ({ id: 7, aspirantId: 54 })),
+        delete: deleteFn,
+      },
+    });
+
+    const result = await service.deleteVisit(54, 7, { id: 1, role: "admin" });
+
+    expect(deleteFn).toHaveBeenCalledWith(7);
+    expect(result).toEqual({ deleted: 1 });
+  });
+});
+
+describe("AspirantsService — deleteMeetings() ownership", () => {
+  it("rejects a non-admin caller who does not own all meetings", async () => {
+    const service = buildService({
+      repo: { findByIds: jest.fn() },
+      meetingRepo: {
+        findByIds: jest.fn(async () => [{ id: 10, aspirantId: 99 }]),
+      },
+    });
+    jest.spyOn(service, "findByUserId").mockResolvedValue({ id: 54 });
+
+    await expect(
+      service.deleteMeetings([10], { id: 57, role: "voter" }),
+    ).rejects.toThrow(ForbiddenException);
+  });
+
+  it("deletes meetings the caller owns", async () => {
+    const deleteFn = jest.fn(async () => ({}));
+    const service = buildService({
+      meetingRepo: {
+        findByIds: jest.fn(async () => [{ id: 10, aspirantId: 54 }]),
+        delete: deleteFn,
+      },
+    });
+    jest.spyOn(service, "findByUserId").mockResolvedValue({ id: 54 });
+
+    const result = await service.deleteMeetings([10], { id: 57, role: "voter" });
+
+    expect(deleteFn).toHaveBeenCalledWith([10]);
+    expect(result).toEqual({ deleted: 1 });
+  });
+});
+
+describe("AspirantsService — listBookingsForAspirant() ownership", () => {
+  it("rejects a caller who does not own the aspirant", async () => {
+    const service = buildService({
+      repo: { findOne: jest.fn(async () => ({ id: 54, userId: 999 })) },
+    });
+    await expect(
+      service.listBookingsForAspirant(54, { id: 57, role: "voter" }),
+    ).rejects.toThrow(ForbiddenException);
+  });
+
+  it("returns bookings for the owner", async () => {
+    const service = buildService({
+      repo: { findOne: jest.fn(async () => ({ id: 54, userId: 57 })) },
+      bookingRepo: { find: jest.fn(async () => []) },
+    });
+
+    const result = await service.listBookingsForAspirant(54, {
+      id: 57,
+      role: "voter",
+    });
+
+    expect(result).toEqual([]);
+  });
+});
+
+describe("AspirantsService — setMeetingLinkForMultiple() ownership", () => {
+  it("rejects a non-admin caller who does not own every aspirant id", async () => {
+    const service = buildService({
+      repo: {
+        findByIds: jest.fn(async () => [{ id: 54 }, { id: 99 }]),
+      },
+    });
+    jest.spyOn(service, "findByUserId").mockResolvedValue({ id: 54 });
+
+    await expect(
+      service.setMeetingLinkForMultiple(
+        [54, 99],
+        "https://meet.example/x",
+        1780000000000,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { id: 57, role: "voter" },
+      ),
+    ).rejects.toThrow(ForbiddenException);
   });
 });
 

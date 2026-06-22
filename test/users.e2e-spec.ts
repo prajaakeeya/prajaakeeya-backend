@@ -70,10 +70,22 @@ describe("UsersController (e2e, no DB)", () => {
     });
   });
 
-  describe("GET /api/users/voters (public)", () => {
-    it("returns 200 without a token and the paginated payload", async () => {
+  describe("GET /api/users/voters (admin only)", () => {
+    it("rejects with 401 when no token is sent", () =>
+      request(app.getHttpServer())
+        .get("/api/users/voters?page=1&limit=20")
+        .expect(401));
+
+    it("rejects with 403 for a non-admin (voter) token", () =>
+      request(app.getHttpServer())
+        .get("/api/users/voters?page=1&limit=20")
+        .set("Authorization", `Bearer ${signToken({ role: "voter" })}`)
+        .expect(403));
+
+    it("returns 200 + the paginated payload for an admin token", async () => {
       const res = await request(app.getHttpServer())
         .get("/api/users/voters?page=1&limit=20")
+        .set("Authorization", `Bearer ${signToken({ role: "admin" })}`)
         .expect(200);
 
       expect(usersService.findAllVoters).toHaveBeenCalled();

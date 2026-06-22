@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
@@ -66,12 +67,19 @@ export class MediaService {
     aspirantId: number,
     documentType: string,
     file: Express.Multer.File,
+    callerId: number,
+    callerRole: string,
   ): Promise<Aspirant> {
     const aspirant = await this.aspirantRepo.findOne({
       where: { id: aspirantId },
     });
     if (!aspirant) {
       throw new NotFoundException("Aspirant not found");
+    }
+    if (callerRole !== "admin" && aspirant.userId !== callerId) {
+      throw new ForbiddenException(
+        "You can only upload documents for your own profile",
+      );
     }
 
     // Snapshot the document-completion state before this upload so we can

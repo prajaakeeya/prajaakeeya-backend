@@ -7,6 +7,7 @@ import {
   Res,
   UseGuards,
 } from "@nestjs/common";
+import { IsString, IsNotEmpty } from "class-validator";
 import type { Response } from "express";
 import { Throttle } from "@nestjs/throttler";
 import {
@@ -18,7 +19,6 @@ import {
 } from "@nestjs/swagger";
 import { AuthService } from "./auth.service";
 import { LoginDto } from "./dto/login.dto";
-import { AdminSeedDto } from "./dto/admin-seed.dto";
 import { VerifyOtpDto } from "./dto/verify-otp.dto";
 import { AspirantSendOtpDto } from "./dto/aspirant-send-otp.dto";
 import { AspirantVerifyOtpDto } from "./dto/aspirant-verify-otp.dto";
@@ -28,6 +28,12 @@ import { CurrentUser } from "../common/decorators/current-user.decorator";
 // Tighter limits for auth endpoints to prevent brute-force / SMS-burn attacks.
 const AUTH_THROTTLE = { default: { ttl: 60_000, limit: 10 } };
 const STRICT_AUTH_THROTTLE = { default: { ttl: 60_000, limit: 5 } };
+
+class ExchangeCodeDto {
+  @IsString()
+  @IsNotEmpty()
+  code!: string;
+}
 
 @ApiTags("Authentication")
 @Controller("auth")
@@ -76,12 +82,8 @@ export class AuthController {
     return this.authService.adminVerifyOtp(dto);
   }
 
-  @Post('admin/seed')
-  @ApiOperation({ summary: 'Seed initial admin user (create admin with password)' })
-  @ApiResponse({ status: 201, description: 'Admin created successfully' })
-  seedAdmin(@Body() dto: AdminSeedDto) {
-    return this.authService.seedAdmin(dto.email!, dto.name, dto.password);
-  }
+  // POST /auth/admin/seed removed — admin creation must not be exposed over an
+  // unauthenticated public endpoint. Seed admins via a one-off CLI/migration.
 
   @Get("google")
   @ApiOperation({
@@ -96,6 +98,20 @@ export class AuthController {
     const state = this.authService.issueOAuthState();
     const url = this.authService.getGoogleAuthUrl(state);
     return res.redirect(url);
+  }
+
+  @Post("exchange-code")
+  @Throttle(STRICT_AUTH_THROTTLE)
+  @ApiOperation({
+    summary: "Exchange a one-time OAuth code for a JWT",
+    description:
+      "Consumes the short-lived code issued by the Google OAuth redirect and returns the session JWT. Codes expire in 60 seconds and are single-use.",
+  })
+  @ApiResponse({ status: 201, description: "JWT returned" })
+  @ApiResponse({ status: 401, description: "Invalid or expired code" })
+  async exchangeCode(@Body() dto: ExchangeCodeDto) {
+    const token = await this.authService.exchangeAuthCode(dto.code);
+    return { token };
   }
 
   @Get("google/callback")

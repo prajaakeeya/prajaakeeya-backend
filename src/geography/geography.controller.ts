@@ -16,6 +16,8 @@ import {
   ApiParam,
 } from "@nestjs/swagger";
 import { JwtAuthGuard } from "../common/guards/jwt-auth.guard";
+import { RolesGuard } from "../common/guards/roles.guard";
+import { Roles } from "../common/decorators/roles.decorator";
 import { GeographyService } from "./geography.service";
 import { CreateStateDto } from "./dto/create-state.dto";
 
@@ -27,7 +29,8 @@ export class GeographyController {
   constructor(private readonly geographyService: GeographyService) {}
 
   @Post("states")
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles("admin")
   @ApiBearerAuth()
   @ApiOperation({ summary: "Create a new state" })
   @ApiResponse({ status: 201, description: "State created successfully" })

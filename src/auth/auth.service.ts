@@ -1,16 +1,20 @@
 import {
   BadRequestException,
   ForbiddenException,
+  Inject,
   Injectable,
   NotFoundException,
   OnModuleDestroy,
   OnModuleInit,
   UnauthorizedException,
 } from "@nestjs/common";
+import { CACHE_MANAGER } from "@nestjs/cache-manager";
+import type { Cache } from "cache-manager";
 import { JwtService } from "@nestjs/jwt";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import { LessThan, Repository } from "typeorm";
+import { randomBytes } from "crypto";
 import { UsersService } from "../users/users.service";
 import { VotesService } from "../votes/votes.service";
 import { VoterRollService } from "../voter-roll/voter-roll.service";
@@ -53,7 +57,28 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
     private readonly gramaPanchayatService: GramaPanchayatService,
     @InjectRepository(Otp) private readonly otpRepo: Repository<Otp>,
     private readonly configService: ConfigService,
+    @Inject(CACHE_MANAGER) private readonly cache: Cache,
   ) {}
+
+  private readonly authCodeTtlMs = 60_000;
+
+  /** Stores a JWT under a single-use random code. TTL = 60 seconds. */
+  async issueAuthCode(jwt: string): Promise<string> {
+    const code = randomBytes(24).toString("hex");
+    await this.cache.set(`auth_code:${code}`, jwt, this.authCodeTtlMs);
+    return code;
+  }
+
+  /** Retrieves and immediately deletes the JWT bound to a one-time code. */
+  async exchangeAuthCode(code: string): Promise<string> {
+    const key = `auth_code:${code}`;
+    const jwt = await this.cache.get<string>(key);
+    if (!jwt) {
+      throw new UnauthorizedException("Invalid or expired auth code");
+    }
+    await this.cache.del(key);
+    return jwt;
+  }
 
   /** Build the JWT payload — includes the fields the strategy/guards rely on. */
   private buildJwtPayload(user: User) {
@@ -225,9 +250,12 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
     // 4. Generate JWT
     const jwt = await this.jwtService.signAsync(this.buildJwtPayload(user!));
 
-    // 5. Build redirect URL back to the app with token
+    // 5. Issue a short-lived one-time code and redirect with that instead of
+    //    the JWT itself — keeps the token out of server access logs, browser
+    //    history, and Referer headers.
+    const authCode = await this.issueAuthCode(jwt);
     const sep = frontendRedirect.includes("?") ? "&" : "?";
-    const redirectUrl = `${frontendRedirect}${sep}token=${encodeURIComponent(jwt)}`;
+    const redirectUrl = `${frontendRedirect}${sep}code=${encodeURIComponent(authCode)}`;
 
     return { token: jwt, user: user!, redirectUrl };
   }

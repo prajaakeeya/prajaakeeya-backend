@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
   Inject,
   forwardRef,
 } from "@nestjs/common";
@@ -475,6 +476,21 @@ export class AspirantsService {
     }
   }
 
+  /** Ensure the caller owns the aspirant profile (admins bypass). Returns the aspirant. */
+  private async assertOwnsAspirant(
+    aspirantId: number,
+    user: { id?: number; role?: string },
+  ): Promise<Aspirant> {
+    const aspirant = await this.repo.findOne({ where: { id: aspirantId } });
+    if (!aspirant) throw new NotFoundException("Aspirant not found");
+    if (user?.role !== "admin" && aspirant.userId !== user?.id) {
+      throw new ForbiddenException(
+        "You can only manage your own aspirant profile",
+      );
+    }
+    return aspirant;
+  }
+
   async createBooking(
     aspirantId: number,
     voterId: number,
@@ -493,7 +509,11 @@ export class AspirantsService {
     return this.bookingRepo.save(booking);
   }
 
-  async listBookingsForAspirant(aspirantId: number) {
+  async listBookingsForAspirant(
+    aspirantId: number,
+    user: { id?: number; role?: string },
+  ) {
+    await this.assertOwnsAspirant(aspirantId, user);
     const bookings = await this.bookingRepo.find({
       where: { aspirantId },
       order: { createdAt: "DESC" },
@@ -526,9 +546,9 @@ export class AspirantsService {
     description?: string,
     location?: string,
     googleMapsLink?: string,
+    user: { id?: number; role?: string } = {},
   ) {
-    const aspirant = await this.repo.findOne({ where: { id: aspirantId } });
-    if (!aspirant) throw new NotFoundException("Aspirant not found");
+    const aspirant = await this.assertOwnsAspirant(aspirantId, user);
     const visit = this.visitRepo.create({
       aspirantId,
       startTime,
@@ -1073,6 +1093,7 @@ export class AspirantsService {
     title?: string,
     description?: string,
     platform?: string,
+    user: { id?: number; role?: string } = {},
   ) {
     // Fetch all aspirants and verify they exist
     const aspirants = await this.repo.findByIds(aspirantIds);
@@ -1083,6 +1104,18 @@ export class AspirantsService {
       throw new NotFoundException(
         `Aspirants not found: ${missingIds.join(", ")}`,
       );
+    }
+
+    // Ownership: a non-admin caller may only set meeting links on their own
+    // aspirant profile. Verify every requested id belongs to the caller.
+    if (user?.role !== "admin") {
+      const callerAspirant = await this.findByUserId(user?.id as number);
+      const ownsAll = aspirantIds.every((id) => id === callerAspirant?.id);
+      if (!ownsAll) {
+        throw new ForbiddenException(
+          "You can only manage your own aspirant profile",
+        );
+      }
     }
 
     // Create meetings for all aspirants
@@ -1110,7 +1143,13 @@ export class AspirantsService {
     });
   }
 
-  async completeMeeting(aspirantId: number, meetingId: number, notes: string) {
+  async completeMeeting(
+    aspirantId: number,
+    meetingId: number,
+    notes: string,
+    user: { id?: number; role?: string } = {},
+  ) {
+    await this.assertOwnsAspirant(aspirantId, user);
     const meeting = await this.meetingRepo.findOne({
       where: { id: meetingId, aspirantId },
     });
@@ -1121,11 +1160,29 @@ export class AspirantsService {
     return this.meetingRepo.findOne({ where: { id: meetingId } });
   }
 
-  async deleteMeetings(meetingIds: number[]) {
+  async deleteMeetings(
+    meetingIds: number[],
+    user: { id?: number; role?: string } = {},
+  ) {
     if (!meetingIds || meetingIds.length === 0) return { deleted: 0 };
     // verify meetings exist
     const meetings = await this.meetingRepo.findByIds(meetingIds);
     if (meetings.length === 0) return { deleted: 0 };
+
+    // Ownership: a non-admin caller may only delete meetings that belong to
+    // their own aspirant profile.
+    if (user?.role !== "admin") {
+      const callerAspirant = await this.findByUserId(user?.id as number);
+      const ownsAll = meetings.every(
+        (m) => m.aspirantId === callerAspirant?.id,
+      );
+      if (!ownsAll) {
+        throw new ForbiddenException(
+          "You can only manage your own aspirant profile",
+        );
+      }
+    }
+
     const foundIds = meetings.map((m) => m.id);
     const toDelete = meetingIds.filter((id) => foundIds.includes(id));
     if (toDelete.length === 0) return { deleted: 0 };
@@ -1134,7 +1191,12 @@ export class AspirantsService {
     return { deleted: toDelete.length };
   }
 
-  async deleteVisit(aspirantId: number, visitId: number) {
+  async deleteVisit(
+    aspirantId: number,
+    visitId: number,
+    user: { id?: number; role?: string } = {},
+  ) {
+    await this.assertOwnsAspirant(aspirantId, user);
     const visit = await this.visitRepo.findOne({
       where: { id: visitId, aspirantId },
     });

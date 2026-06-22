@@ -32,9 +32,10 @@ export class WardsController {
   constructor(private readonly wardsService: WardsService) {}
 
   @Post()
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles("admin")
   @ApiBearerAuth()
-  @ApiOperation({ summary: "Create a new ward" })
+  @ApiOperation({ summary: "Create a new ward (admin only)" })
   @ApiResponse({ status: 201, description: "Ward created successfully" })
   @ApiResponse({ status: 400, description: "Validation error" })
   @ApiResponse({ status: 401, description: "Unauthorized" })

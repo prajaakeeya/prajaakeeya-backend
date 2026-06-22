@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -43,7 +44,8 @@ export class MediaController {
   constructor(private readonly mediaService: MediaService) {}
 
   @Get("presign")
-  @ApiOperation({ summary: "Get presigned URL for private S3 object" })
+  @Roles("admin")
+  @ApiOperation({ summary: "Get presigned URL for private S3 object (admin only)" })
   @ApiQuery({
     name: "key",
     description: "S3 object key (e.g. profiles/20/file.jpg)",
@@ -66,7 +68,20 @@ export class MediaController {
 
   // User profile picture
   @Post("profile-picture")
-  @UseInterceptors(FileInterceptor("file"))
+  @UseInterceptors(
+    FileInterceptor("file", {
+      fileFilter: (_req, file, cb) => {
+        const allowed = ["image/jpeg", "image/png", "image/webp"];
+        if (!allowed.includes(file.mimetype)) {
+          return cb(
+            new BadRequestException("Only JPEG, PNG, or WebP images are allowed"),
+            false,
+          );
+        }
+        cb(null, true);
+      },
+    }),
+  )
   @ApiConsumes("multipart/form-data")
   @ApiOperation({ summary: "Upload or update user profile picture" })
   @ApiBody({
@@ -108,7 +123,27 @@ export class MediaController {
 
   // Aspirant document uploads
   @Post("aspirant/:aspirantId/document")
-  @UseInterceptors(FileInterceptor("file"))
+  @UseInterceptors(
+    FileInterceptor("file", {
+      fileFilter: (_req, file, cb) => {
+        const allowed = [
+          "application/pdf",
+          "image/jpeg",
+          "image/png",
+          "image/webp",
+        ];
+        if (!allowed.includes(file.mimetype)) {
+          return cb(
+            new BadRequestException(
+              "Only PDF or image files (JPEG, PNG, WebP) are allowed",
+            ),
+            false,
+          );
+        }
+        cb(null, true);
+      },
+    }),
+  )
   @ApiConsumes("multipart/form-data")
   @ApiOperation({ summary: "Upload aspirant document (SOP, Agreement, etc.)" })
   @ApiBody({
@@ -144,6 +179,7 @@ export class MediaController {
   @ApiResponse({ status: 200, description: "Document uploaded successfully" })
   @ApiResponse({ status: 404, description: "Aspirant not found" })
   async uploadAspirantDocument(
+    @Req() req: any,
     @Param("aspirantId", ParseIntPipe) aspirantId: number,
     @Body() dto: UploadAspirantDocumentDto,
     @UploadedFile() file: Express.Multer.File,
@@ -152,6 +188,8 @@ export class MediaController {
       aspirantId,
       dto.documentType,
       file,
+      req.user.id,
+      req.user.role,
     );
   }
 
@@ -204,7 +242,19 @@ export class MediaController {
   // Admin - upload global documents
   @Post("admin/document")
   @Roles("admin")
-  @UseInterceptors(FileInterceptor("file"))
+  @UseInterceptors(
+    FileInterceptor("file", {
+      fileFilter: (_req, file, cb) => {
+        if (file.mimetype !== "application/pdf") {
+          return cb(
+            new BadRequestException("Only PDF files are allowed for documents"),
+            false,
+          );
+        }
+        cb(null, true);
+      },
+    }),
+  )
   @ApiConsumes("multipart/form-data")
   @ApiOperation({ summary: "Admin - Upload global document template" })
   @ApiBody({
@@ -280,7 +330,19 @@ export class MediaController {
 
   // User - sign and upload admin document
   @Post("sign-document")
-  @UseInterceptors(FileInterceptor("file"))
+  @UseInterceptors(
+    FileInterceptor("file", {
+      fileFilter: (_req, file, cb) => {
+        if (file.mimetype !== "application/pdf") {
+          return cb(
+            new BadRequestException("Only PDF files are allowed for signed documents"),
+            false,
+          );
+        }
+        cb(null, true);
+      },
+    }),
+  )
   @ApiConsumes("multipart/form-data")
   @ApiOperation({ summary: "Upload signed document" })
   @ApiBody({

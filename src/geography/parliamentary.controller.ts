@@ -18,6 +18,8 @@ import {
   ApiQuery,
 } from "@nestjs/swagger";
 import { JwtAuthGuard } from "../common/guards/jwt-auth.guard";
+import { RolesGuard } from "../common/guards/roles.guard";
+import { Roles } from "../common/decorators/roles.decorator";
 import { ParliamentaryService } from "./parliamentary.service";
 import { CreateParliamentaryDto } from "./dto/create-parliamentary.dto";
 
@@ -29,7 +31,8 @@ export class ParliamentaryController {
   constructor(private readonly parliamentaryService: ParliamentaryService) {}
 
   @Post()
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles("admin")
   @ApiBearerAuth()
   @ApiOperation({ summary: "Create a new parliamentary constituency" })
   @ApiResponse({

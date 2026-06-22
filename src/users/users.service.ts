@@ -255,7 +255,8 @@ export class UsersService {
         id: u.id,
         name: u.name,
         profilePicture: u.profilePicture,
-        epicId: u.epicId,
+        // epicId intentionally omitted — voter EPIC IDs are sensitive PII and
+        // must not be returned in list responses.
         role: u.role,
         isBlocked: u.isBlocked,
         wardId: u.wardId,

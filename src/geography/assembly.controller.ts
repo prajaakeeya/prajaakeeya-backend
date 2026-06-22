@@ -18,6 +18,8 @@ import {
   ApiQuery,
 } from "@nestjs/swagger";
 import { JwtAuthGuard } from "../common/guards/jwt-auth.guard";
+import { RolesGuard } from "../common/guards/roles.guard";
+import { Roles } from "../common/decorators/roles.decorator";
 import { AssemblyService } from "./assembly.service";
 import { CreateAssemblyDto } from "./dto/create-assembly.dto";
 
@@ -29,9 +31,10 @@ export class AssemblyController {
   constructor(private readonly assemblyService: AssemblyService) {}
 
   @Post()
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles("admin")
   @ApiBearerAuth()
-  @ApiOperation({ summary: "Create a new assembly constituency" })
+  @ApiOperation({ summary: "Create a new assembly constituency (admin only)" })
   @ApiResponse({
     status: 201,
     description: "Assembly constituency created successfully",

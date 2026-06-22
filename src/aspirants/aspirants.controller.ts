@@ -185,7 +185,7 @@ export class AspirantsController {
   })
   @ApiResponse({ status: 401, description: "Unauthorized" })
   @ApiResponse({ status: 404, description: "One or more aspirants not found" })
-  setMeeting(@Body() dto: SetMeetingLinkDto) {
+  setMeeting(@CurrentUser() user: any, @Body() dto: SetMeetingLinkDto) {
     return this.aspirantsService.setMeetingLinkForMultiple(
       dto.aspirantIds,
       dto.meetingLink,
@@ -194,6 +194,7 @@ export class AspirantsController {
       dto.title,
       dto.description,
       dto.platform,
+      user,
     );
   }
 
@@ -214,6 +215,7 @@ export class AspirantsController {
     example: 12,
   })
   completeMeeting(
+    @CurrentUser() user: any,
     @Param("id") id: string,
     @Param("meetingId") meetingId: string,
     @Body() dto: CompleteMeetingDto,
@@ -222,6 +224,7 @@ export class AspirantsController {
       Number(id),
       Number(meetingId),
       dto.notes,
+      user,
     );
   }
 
@@ -278,8 +281,8 @@ export class AspirantsController {
     description: "Aspirant ID",
     example: 5,
   })
-  bookings(@Param("id") id: string) {
-    return this.aspirantsService.listBookingsForAspirant(Number(id));
+  bookings(@CurrentUser() user: any, @Param("id") id: string) {
+    return this.aspirantsService.listBookingsForAspirant(Number(id), user);
   }
 
   @Post(":id/visits")
@@ -293,7 +296,11 @@ export class AspirantsController {
     example: 5,
   })
   @ApiResponse({ status: 201, description: "Visit created" })
-  createVisit(@Param("id") id: string, @Body() dto: CreateVisitDto) {
+  createVisit(
+    @CurrentUser() user: any,
+    @Param("id") id: string,
+    @Body() dto: CreateVisitDto,
+  ) {
     return this.aspirantsService.createVisit(
       Number(id),
       dto.startTime,
@@ -302,6 +309,7 @@ export class AspirantsController {
       dto.description,
       dto.location,
       dto.googleMapsLink,
+      user,
     );
   }
 
@@ -388,8 +396,8 @@ export class AspirantsController {
   @ApiOperation({ summary: "Delete multiple meetings by IDs" })
   @ApiResponse({ status: 200, description: "Meetings deleted successfully" })
   @ApiResponse({ status: 401, description: "Unauthorized" })
-  deleteMeetings(@Body() dto: DeleteMeetingsDto) {
-    return this.aspirantsService.deleteMeetings(dto.meetingIds);
+  deleteMeetings(@CurrentUser() user: any, @Body() dto: DeleteMeetingsDto) {
+    return this.aspirantsService.deleteMeetings(dto.meetingIds, user);
   }
 
   @Delete(":id/visits/:visitId")
@@ -409,8 +417,12 @@ export class AspirantsController {
     example: 10,
   })
   @ApiResponse({ status: 200, description: "Visit deleted" })
-  deleteVisit(@Param("id") id: string, @Param("visitId") visitId: string) {
-    return this.aspirantsService.deleteVisit(Number(id), Number(visitId));
+  deleteVisit(
+    @CurrentUser() user: any,
+    @Param("id") id: string,
+    @Param("visitId") visitId: string,
+  ) {
+    return this.aspirantsService.deleteVisit(Number(id), Number(visitId), user);
   }
 
   @Post("meetings/:meetingId/rate")

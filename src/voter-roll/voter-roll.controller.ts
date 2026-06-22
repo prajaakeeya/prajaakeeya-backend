@@ -18,6 +18,8 @@ import {
   ApiBody,
 } from "@nestjs/swagger";
 import { JwtAuthGuard } from "../common/guards/jwt-auth.guard";
+import { RolesGuard } from "../common/guards/roles.guard";
+import { Roles } from "../common/decorators/roles.decorator";
 import { VoterRollService } from "./voter-roll.service";
 import { WardsService } from "../wards/wards.service";
 import { FileInterceptor } from "@nestjs/platform-express";
@@ -27,6 +29,8 @@ import { MAX_UPLOAD_BYTES } from "../common/upload.constants";
 
 @ApiTags("Voter Roll")
 @Controller("voters")
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles("admin")
 export class VoterRollController {
   constructor(
     private readonly voterRollService: VoterRollService,
@@ -87,7 +91,8 @@ export class VoterRollController {
   }
 
   @Post("ward/:wardId/upload-excel")
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles("admin")
   @ApiBearerAuth()
   @ApiOperation({ summary: "Upload Excel file with voter data for a ward" })
   @ApiParam({
