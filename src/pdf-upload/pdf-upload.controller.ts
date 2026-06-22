@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Controller,
   Param,
   Post,
@@ -18,15 +19,19 @@ import {
 import { diskStorage } from "multer";
 import { FilesInterceptor } from "@nestjs/platform-express";
 import { mkdirSync } from "fs";
-import { join } from "path";
+import { basename, extname, join } from "path";
+import { randomUUID } from "crypto";
 import { JwtAuthGuard } from "../common/guards/jwt-auth.guard";
+import { RolesGuard } from "../common/guards/roles.guard";
+import { Roles } from "../common/decorators/roles.decorator";
 import type { Request } from "express";
 import { ExtractionService } from "../extraction/extraction.service";
 import { MAX_UPLOAD_BYTES } from "../common/upload.constants";
 
 @ApiTags("PDF Upload")
 @Controller("wards")
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles("admin")
 @ApiBearerAuth()
 export class PdfUploadController {
   constructor(private readonly extractionService: ExtractionService) {}
@@ -64,8 +69,12 @@ export class PdfUploadController {
           _file: Express.Multer.File,
           cb: (error: Error | null, destination: string) => void,
         ) => {
-          const wardId = req.params.wardId;
-          const dest = join(process.cwd(), "uploads", `ward-${wardId}`);
+          // Sanitise wardId: only allow digits to prevent path traversal.
+          const rawWardId = req.params.wardId ?? "";
+          if (!/^\d+$/.test(rawWardId)) {
+            return cb(new BadRequestException("Invalid wardId"), "");
+          }
+          const dest = join(process.cwd(), "uploads", `ward-${rawWardId}`);
           mkdirSync(dest, { recursive: true });
           cb(null, dest);
         },
@@ -73,9 +82,24 @@ export class PdfUploadController {
           _req: Request,
           file: Express.Multer.File,
           cb: (error: Error | null, filename: string) => void,
-        ) => cb(null, `${Date.now()}-${file.originalname}`),
+        ) => {
+          // Use UUID + sanitised extension — never trust originalname for path.
+          const safeExt = extname(basename(file.originalname))
+            .toLowerCase()
+            .replace(/[^.a-z0-9]/g, "");
+          cb(null, `${randomUUID()}${safeExt}`);
+        },
       }),
       limits: { fileSize: MAX_UPLOAD_BYTES },
+      fileFilter: (_req, file, cb) => {
+        if (file.mimetype !== "application/pdf") {
+          return cb(
+            new BadRequestException("Only PDF files are allowed"),
+            false,
+          );
+        }
+        cb(null, true);
+      },
     }),
   )
   async upload(

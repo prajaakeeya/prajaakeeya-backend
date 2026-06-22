@@ -91,7 +91,8 @@ export class VoterRollController {
   }
 
   @Post("ward/:wardId/upload-excel")
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles("admin")
   @ApiBearerAuth()
   @ApiOperation({ summary: "Upload Excel file with voter data for a ward" })
   @ApiParam({
