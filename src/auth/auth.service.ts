@@ -1,12 +1,15 @@
 import {
   BadRequestException,
   ForbiddenException,
+  Inject,
   Injectable,
   NotFoundException,
   OnModuleDestroy,
   OnModuleInit,
   UnauthorizedException,
 } from "@nestjs/common";
+import { CACHE_MANAGER } from "@nestjs/cache-manager";
+import type { Cache } from "cache-manager";
 import { JwtService } from "@nestjs/jwt";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
@@ -53,7 +56,14 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
     private readonly gramaPanchayatService: GramaPanchayatService,
     @InjectRepository(Otp) private readonly otpRepo: Repository<Otp>,
     private readonly configService: ConfigService,
+    @Inject(CACHE_MANAGER) private readonly cache: Cache,
   ) {}
+
+  /** One-time OAuth code: cache key prefix and (short) single-use lifetime. */
+  private readonly oauthCodeTtlMs = 60 * 1000;
+  private oauthCodeKey(code: string): string {
+    return `oauth:code:${code}`;
+  }
 
   /** Build the JWT payload — includes the fields the strategy/guards rely on. */
   private buildJwtPayload(user: User) {
@@ -66,14 +76,22 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  /** Issue a stateless HMAC-signed CSRF state token for the OAuth round-trip. */
-  issueOAuthState(): string {
+  /**
+   * Issue an HMAC-signed CSRF state token for the OAuth round-trip.
+   *
+   * The frontend's own random state (`clientState`) is embedded and signed so
+   * the backend can both (a) verify integrity + freshness on the callback and
+   * (b) echo the unchanged client state back, which the frontend compares
+   * against the value it stashed in sessionStorage. The client state is a 32
+   * hex-char token (no dots), so dot-splitting is unambiguous.
+   */
+  issueOAuthState(clientState: string): string {
     const secret =
       this.configService.get<string>("JWT_SECRET") ?? "dev-jwt-secret";
     const crypto = require("crypto") as typeof import("crypto");
     const ts = Date.now().toString(36);
     const nonce = crypto.randomBytes(12).toString("hex");
-    const payload = `${ts}.${nonce}`;
+    const payload = `${clientState}.${ts}.${nonce}`;
     const sig = crypto
       .createHmac("sha256", secret)
       .update(payload)
@@ -81,30 +99,91 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
     return `${payload}.${sig}`;
   }
 
-  /** Verify an OAuth state token: signature must match and timestamp ≤10 min. */
-  verifyOAuthState(state: string): boolean {
+  /**
+   * Verify an OAuth state token: signature must match and timestamp ≤10 min.
+   * Returns the embedded client state when valid, otherwise `null`.
+   */
+  verifyOAuthState(state: string): string | null {
     const secret =
       this.configService.get<string>("JWT_SECRET") ?? "dev-jwt-secret";
     const crypto = require("crypto") as typeof import("crypto");
     const parts = state.split(".");
-    if (parts.length !== 3) return false;
-    const [ts, nonce, sig] = parts;
+    if (parts.length !== 4) return null;
+    const [clientState, ts, nonce, sig] = parts;
     const expected = crypto
       .createHmac("sha256", secret)
-      .update(`${ts}.${nonce}`)
+      .update(`${clientState}.${ts}.${nonce}`)
       .digest("hex");
     if (
       sig.length !== expected.length ||
       !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))
     ) {
-      return false;
+      return null;
     }
     const issuedAt = parseInt(ts, 36);
-    if (!Number.isFinite(issuedAt)) return false;
-    return Date.now() - issuedAt < 10 * 60 * 1000;
+    if (!Number.isFinite(issuedAt)) return null;
+    if (Date.now() - issuedAt >= 10 * 60 * 1000) return null;
+    return clientState;
+  }
+
+  /**
+   * Mint a single-use, short-lived authorization code bound to a freshly
+   * issued JWT and the client's OAuth state. Stored server-side (cache) so the
+   * JWT never travels in a redirect URL; redeemed exactly once via
+   * {@link exchangeOneTimeCode}.
+   */
+  async createOneTimeCode(token: string, clientState: string): Promise<string> {
+    const crypto = require("crypto") as typeof import("crypto");
+    const code = crypto.randomBytes(32).toString("hex");
+    await this.cache.set(
+      this.oauthCodeKey(code),
+      JSON.stringify({ token, state: clientState }),
+      this.oauthCodeTtlMs,
+    );
+    return code;
+  }
+
+  /**
+   * Redeem a one-time OAuth code. Consumes the code (single use), re-validates
+   * the client state, and returns the bound JWT plus the resolved user.
+   */
+  async exchangeOneTimeCode(
+    code: string,
+    state: string,
+  ): Promise<{ token: string; user: any }> {
+    if (!code) {
+      throw new BadRequestException("Authorization code is required");
+    }
+    const key = this.oauthCodeKey(code);
+    const raw = await this.cache.get<string>(key);
+    if (!raw) {
+      throw new UnauthorizedException("Invalid or expired authorization code");
+    }
+    // Consume immediately so a replayed code cannot be redeemed twice.
+    await this.cache.del(key);
+
+    const stored = JSON.parse(raw) as { token: string; state: string };
+    if (!state || state !== stored.state) {
+      throw new UnauthorizedException("Invalid OAuth state");
+    }
+
+    const payload = this.jwtService.decode(stored.token) as { sub?: number };
+    const user = payload?.sub ? await this.profile(payload.sub) : null;
+    return { token: stored.token, user };
   }
 
   // ===== Google OAuth 2.0 Authorization Code Flow =====
+
+  /** The frontend URL the OAuth callback redirects back to. */
+  getFrontendRedirectUri(): string {
+    const frontendRedirect = this.configService.get<string>(
+      "GOOGLE_FRONTEND_REDIRECT_URI",
+    );
+    if (!frontendRedirect) {
+      throw new BadRequestException("Google OAuth not configured");
+    }
+    return frontendRedirect;
+  }
 
   getGoogleAuthUrl(state?: string): string {
     const clientId = this.configService.get<string>("GOOGLE_CLIENT_ID");
@@ -128,7 +207,7 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
   async handleGoogleCallback(code: string): Promise<{
     token: string;
     user: User;
-    redirectUrl: string;
+    errorRedirectUrl?: string;
   }> {
     if (!code) {
       throw new BadRequestException("Authorization code is required");
@@ -204,8 +283,8 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
       const sep = frontendRedirect.includes("?") ? "&" : "?";
       const errorMsg =
         "Your account has been blocked. Please contact support.";
-      const redirectUrl = `${frontendRedirect}${sep}error=${encodeURIComponent(errorMsg)}`;
-      return { token: "", user, redirectUrl };
+      const errorRedirectUrl = `${frontendRedirect}${sep}error=${encodeURIComponent(errorMsg)}`;
+      return { token: "", user, errorRedirectUrl };
     }
 
     if (user && (user.isSelfDeleted || (user.isBlocked && user.name === "Deleted User"))) {
@@ -222,14 +301,11 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
       } as any);
     }
 
-    // 4. Generate JWT
+    // 4. Generate JWT. The caller mints a one-time code bound to this token and
+    //    redirects with the code — the JWT itself never enters the URL.
     const jwt = await this.jwtService.signAsync(this.buildJwtPayload(user!));
 
-    // 5. Build redirect URL back to the app with token
-    const sep = frontendRedirect.includes("?") ? "&" : "?";
-    const redirectUrl = `${frontendRedirect}${sep}token=${encodeURIComponent(jwt)}`;
-
-    return { token: jwt, user: user!, redirectUrl };
+    return { token: jwt, user: user! };
   }
 
   onModuleInit() {

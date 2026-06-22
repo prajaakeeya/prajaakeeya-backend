@@ -9,13 +9,25 @@ import { MulterExceptionFilter } from "./common/filters/multer-exception.filter"
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  // Security headers. CSP is disabled because this process serves only the
-  // JSON API; Swagger UI (when enabled in non-prod) hosts its own assets and
-  // would break under a default-strict CSP.
+  // Security headers. In production we ship a strict CSP; locking script/object
+  // sources and forbidding framing hardens any HTML this origin ever serves and
+  // satisfies the production-CSP requirement. CSP stays off in non-prod so the
+  // self-hosted Swagger UI assets keep working.
   app.use(
     helmet({
       contentSecurityPolicy:
-        process.env.NODE_ENV === "production" ? undefined : false,
+        process.env.NODE_ENV === "production"
+          ? {
+              useDefaults: false,
+              directives: {
+                defaultSrc: ["'self'"],
+                scriptSrc: ["'self'"],
+                objectSrc: ["'none'"],
+                baseUri: ["'self'"],
+                frameAncestors: ["'none'"],
+              },
+            }
+          : false,
       crossOriginResourcePolicy: { policy: "cross-origin" },
     }),
   );
