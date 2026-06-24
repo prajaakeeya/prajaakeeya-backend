@@ -47,6 +47,12 @@ export class Aspirant extends BaseEntity {
   @Column({ default: "pending" })
   status!: "pending" | "approved" | "rejected";
 
+  // "idle": registered as an aspirant but hasn't declared an
+  // election/constituency yet (e.g. none has been announced). "declared":
+  // electionId + constituencyId are set. See AspirantsService.declareCandidacy.
+  @Column({ default: "idle" })
+  candidacyStatus!: "idle" | "declared";
+
   @Column({ default: true })
   isActive!: boolean;
 
@@ -56,11 +62,11 @@ export class Aspirant extends BaseEntity {
   @ManyToOne(() => Ward, (ward) => ward.aspirants, { nullable: true })
   ward?: Ward;
 
-  @Column({ nullable: true })
-  electionId?: number;
+  @Column({ type: "int", nullable: true })
+  electionId?: number | null;
 
-  @Column({ nullable: true })
-  constituencyId?: number;
+  @Column({ type: "int", nullable: true })
+  constituencyId?: number | null;
 
   @Column({ nullable: true })
   userId?: number;

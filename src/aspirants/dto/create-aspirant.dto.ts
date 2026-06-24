@@ -19,24 +19,28 @@ export class CreateAspirantDto {
   @IsNotEmpty()
   name!: string;
 
-  @ApiProperty({
-    description: "ID of the election type (from GET /elections)",
+  @ApiPropertyOptional({
+    description:
+      "ID of the election type (from GET /elections). Optional at registration — " +
+      "an aspirant can register before any election is announced and declare " +
+      "their candidacy later via PATCH /aspirants/:id/candidacy.",
     example: 1,
   })
   @Type(() => Number)
   @IsInt()
-  @IsNotEmpty()
-  electionId!: number;
+  @IsOptional()
+  electionId?: number;
 
-  @ApiProperty({
+  @ApiPropertyOptional({
     description:
-      "ID of the constituency within that election (parliamentary/assembly/ward ID from GET /elections/:type/constituencies)",
+      "ID of the constituency within that election (parliamentary/assembly/ward ID " +
+      "from GET /elections/:type/constituencies). Optional — see electionId.",
     example: 5,
   })
   @Type(() => Number)
   @IsInt()
-  @IsNotEmpty()
-  constituencyId!: number;
+  @IsOptional()
+  constituencyId?: number;
 
   @ApiPropertyOptional({
     description: "Party name (defaults to Independent)",

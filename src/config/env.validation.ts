@@ -72,6 +72,18 @@ class EnvironmentVariables {
   @IsOptional()
   GOOGLE_FRONTEND_REDIRECT_URI?: string;
 
+  // Dev-only bypass for the real Google OAuth exchange — see AuthService.
+  // Hard-gated to non-production regardless of this value.
+  @IsString()
+  @IsOptional()
+  GOOGLE_OAUTH_MOCK?: string;
+
+  // Dev-only: write uploads to local disk instead of S3 — see S3Service.
+  // Hard-gated to non-production regardless of this value.
+  @IsString()
+  @IsOptional()
+  USE_LOCAL_STORAGE?: string;
+
   // Session cookie SameSite policy: "lax" (default) or "none" (cross-site FE).
   @IsString()
   @IsOptional()

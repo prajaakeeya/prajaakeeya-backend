@@ -4,6 +4,8 @@ import { AppModule } from "./app.module";
 import { ClassSerializerInterceptor, ValidationPipe } from "@nestjs/common";
 import { SwaggerModule, DocumentBuilder } from "@nestjs/swagger";
 import helmet from "helmet";
+import * as express from "express";
+import * as path from "path";
 import { MulterExceptionFilter } from "./common/filters/multer-exception.filter";
 
 async function bootstrap() {
@@ -33,6 +35,18 @@ async function bootstrap() {
   );
 
   app.getHttpAdapter().getInstance().set("trust proxy", 1);
+
+  // Dev-only local-storage fallback for file uploads (see S3Service /
+  // USE_LOCAL_STORAGE) — serves whatever S3Service wrote to ./uploads.
+  // Registered before setGlobalPrefix so files are at /uploads/*, not
+  // /api/uploads/*. Hard-gated to non-production, mirroring S3Service.
+  if (
+    process.env.USE_LOCAL_STORAGE === "true" &&
+    process.env.NODE_ENV !== "production"
+  ) {
+    app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
+  }
+
   app.setGlobalPrefix("api");
   app.useGlobalPipes(
     new ValidationPipe({

@@ -26,6 +26,11 @@ import { MeetingResponse } from "./meeting-response.entity";
 import { VotesService } from "../votes/votes.service";
 import { ElectionsService } from "../elections/elections.service";
 import { ActivityRating } from "./activity-rating.entity";
+import { AspirantProposal } from "./aspirant-proposal.entity";
+import { ProposalSupport } from "./proposal-support.entity";
+import { AspirantCandidacy } from "./aspirant-candidacy.entity";
+import { CreateProposalDto } from "./dto/create-proposal.dto";
+import { UpdateProposalDto } from "./dto/update-proposal.dto";
 import { UserAspirantInteraction } from "../users/user-aspirant-interaction.entity";
 import { UpdateAspirantDto } from "./dto/update-aspirant.dto";
 import { User } from "../users/user.entity";
@@ -97,6 +102,12 @@ export class AspirantsService {
     private readonly activityRatingRepo: Repository<ActivityRating>,
     @InjectRepository(UserAspirantInteraction)
     private readonly interactionRepo: Repository<UserAspirantInteraction>,
+    @InjectRepository(AspirantProposal)
+    private readonly proposalRepo: Repository<AspirantProposal>,
+    @InjectRepository(ProposalSupport)
+    private readonly proposalSupportRepo: Repository<ProposalSupport>,
+    @InjectRepository(AspirantCandidacy)
+    private readonly candidacyRepo: Repository<AspirantCandidacy>,
     private readonly usersService: UsersService,
     private readonly wardsService: WardsService,
     private readonly electionsService: ElectionsService,
@@ -206,7 +217,7 @@ export class AspirantsService {
    * query per election type, then return a Map keyed by `${electionId}:${constituencyId}`.
    */
   private async resolveConstituencyNames(
-    aspirants: Array<{ electionId?: number; constituencyId?: number }>,
+    aspirants: Array<{ electionId?: number | null; constituencyId?: number | null }>,
     electionMap: Map<number, { id: number; name: string; type: string }>,
   ): Promise<Map<string, string>> {
     const buckets: Record<string, number[]> = {
@@ -332,16 +343,20 @@ export class AspirantsService {
   }
 
   private async create(dto: CreateAspirantDto, user?: AuthUser) {
-    // Resolve election and set wardId for municipal_corporation
-    const election = await this.electionsService.findById(dto.electionId);
+    // Election/constituency are optional at registration — an aspirant can
+    // sign up before any election is announced and declare candidacy later
+    // via declareCandidacy(). Only resolve the election/ward when provided.
     let wardId: number | null = null;
-    if (election.type === "municipal_corporation") {
-      const ward = await this.wardsService.findOne(dto.constituencyId);
-      if (!ward)
-        throw new NotFoundException(
-          `Ward with id ${dto.constituencyId} not found`,
-        );
-      wardId = ward.id;
+    if (dto.electionId && dto.constituencyId) {
+      const election = await this.electionsService.findById(dto.electionId);
+      if (election.type === "municipal_corporation") {
+        const ward = await this.wardsService.findOne(dto.constituencyId);
+        if (!ward)
+          throw new NotFoundException(
+            `Ward with id ${dto.constituencyId} not found`,
+          );
+        wardId = ward.id;
+      }
     }
 
     // Gender fallback: the JWT-derived `user` doesn't carry the user's stored
@@ -363,6 +378,9 @@ export class AspirantsService {
       phone: dto.phone,
       address: dto.address,
       manifesto: dto.manifesto,
+      candidacyStatus: (dto.electionId && dto.constituencyId
+        ? "declared"
+        : "idle") as "idle" | "declared",
       instagramLink: dto.instagramLink,
       facebookLink: dto.facebookLink,
       linkedinLink: dto.linkedinLink,
@@ -444,7 +462,16 @@ export class AspirantsService {
             where: { id: existing.id },
           });
           if (updated) {
-            await this.syncUserSavedConstituency(updated, manager);
+            if (dto.electionId && dto.constituencyId) {
+              await this.upsertCandidacy(
+                updated,
+                dto.electionId,
+                dto.constituencyId,
+                manager,
+              );
+            } else {
+              await this.syncUserSavedConstituency(updated, manager);
+            }
             // No new-aspirant notification yet — that fires when documents
             // complete (sop + selfie uploaded), in MediaService.
           }
@@ -477,7 +504,11 @@ export class AspirantsService {
         }
       }
 
-      await this.syncUserSavedConstituency(aspirant, manager);
+      if (dto.electionId && dto.constituencyId) {
+        await this.upsertCandidacy(aspirant, dto.electionId, dto.constituencyId, manager);
+      } else {
+        await this.syncUserSavedConstituency(aspirant, manager);
+      }
       // No new-aspirant notification at registration — it fires when the
       // aspirant first completes their required documents
       // (hasAllRequiredDocuments → true), dispatched from MediaService.
@@ -520,23 +551,43 @@ export class AspirantsService {
     if (!aspirant.userId || !aspirant.electionId || !aspirant.constituencyId) {
       return;
     }
+    await this.syncUserConstituencyForElection(
+      aspirant.userId,
+      aspirant.electionId,
+      aspirant.constituencyId,
+      manager,
+    );
+  }
+
+  /**
+   * Sync one election type's constituency onto the matching slot on the
+   * user (lokSabhaConstituencyId / stateAssemblyConstituencyId / etc — one
+   * per election type). Used both for the aspirant's "primary" race and for
+   * each additional candidacy declared via upsertCandidacy — since each
+   * election type maps to a distinct user field, declaring candidacies for
+   * several types at once never conflicts.
+   */
+  private async syncUserConstituencyForElection(
+    userId: number,
+    electionId: number,
+    constituencyId: number,
+    manager?: EntityManager,
+  ) {
     try {
-      const election = await this.electionsService.findById(
-        aspirant.electionId,
-      );
+      const election = await this.electionsService.findById(electionId);
       const patch: Record<string, number> = {};
       switch (election.type) {
         case "lok_sabha":
-          patch.lokSabhaConstituencyId = aspirant.constituencyId;
+          patch.lokSabhaConstituencyId = constituencyId;
           break;
         case "state_assembly":
-          patch.stateAssemblyConstituencyId = aspirant.constituencyId;
+          patch.stateAssemblyConstituencyId = constituencyId;
           break;
         case "municipal_corporation":
-          patch.municipalCorporationConstituencyId = aspirant.constituencyId;
+          patch.municipalCorporationConstituencyId = constituencyId;
           break;
         case "gram_panchayat":
-          patch.gramPanchayatConstituencyId = aspirant.constituencyId;
+          patch.gramPanchayatConstituencyId = constituencyId;
           break;
         default:
           return;
@@ -547,18 +598,140 @@ export class AspirantsService {
         // aspirant + user writes. updateConstituencies (which uses its own
         // repo) would otherwise run outside this transaction.
         const userRepo = manager.getRepository(User);
-        const user = await userRepo.findOne({
-          where: { id: aspirant.userId },
-        });
+        const user = await userRepo.findOne({ where: { id: userId } });
         if (!user) return;
         Object.assign(user, patch);
         await userRepo.save(user);
       } else {
-        await this.usersService.updateConstituencies(aspirant.userId, patch);
+        await this.usersService.updateConstituencies(userId, patch);
       }
     } catch {
       /* best-effort */
     }
+  }
+
+  /**
+   * Create or update the candidacy row for one election type, and refresh
+   * the aspirant's "primary" electionId/constituencyId (the single pair
+   * Votes/profile()/stats look at) — set when unset, or refreshed when this
+   * call re-declares that same election type. Multiple election types can
+   * be declared independently without clobbering each other.
+   */
+  private async upsertCandidacy(
+    aspirant: Aspirant,
+    electionId: number,
+    constituencyId: number,
+    manager?: EntityManager,
+  ): Promise<AspirantCandidacy> {
+    const candidacyRepo = manager
+      ? manager.getRepository(AspirantCandidacy)
+      : this.candidacyRepo;
+    const aspirantRepo = manager ? manager.getRepository(Aspirant) : this.repo;
+
+    const election = await this.electionsService.findById(electionId);
+    let wardId: number | null = null;
+    if (election.type === "municipal_corporation") {
+      const ward = await this.wardsService.findOne(constituencyId);
+      if (!ward) {
+        throw new NotFoundException(`Ward with id ${constituencyId} not found`);
+      }
+      wardId = ward.id;
+    }
+
+    let candidacy = await candidacyRepo.findOne({
+      where: { aspirantId: aspirant.id, electionId },
+    });
+    if (candidacy) {
+      candidacy.constituencyId = constituencyId;
+      candidacy.wardId = wardId;
+    } else {
+      candidacy = candidacyRepo.create({
+        aspirantId: aspirant.id,
+        electionId,
+        constituencyId,
+        wardId,
+      });
+    }
+    await candidacyRepo.save(candidacy);
+
+    if (!aspirant.electionId || aspirant.electionId === electionId) {
+      aspirant.electionId = electionId;
+      aspirant.constituencyId = constituencyId;
+      aspirant.wardId = wardId;
+    }
+    aspirant.candidacyStatus = "declared";
+    await aspirantRepo.save(aspirant);
+
+    if (aspirant.userId) {
+      await this.syncUserConstituencyForElection(
+        aspirant.userId,
+        electionId,
+        constituencyId,
+        manager,
+      );
+    }
+
+    return candidacy;
+  }
+
+  /** All races an aspirant has declared candidacy for, with names resolved. */
+  async listCandidacies(aspirantId: number) {
+    const candidacies = await this.candidacyRepo.find({
+      where: { aspirantId },
+      order: { createdAt: "ASC" },
+    });
+    if (!candidacies.length) return [];
+
+    const electionIds = [...new Set(candidacies.map((c) => c.electionId))];
+    const elections = await this.repo.manager
+      .getRepository("Election")
+      .findBy({ id: In(electionIds) } as any);
+    const electionMap = new Map<number, { id: number; name: string; type: string }>(
+      (elections as any[]).map((e) => [e.id, { id: e.id, name: e.name, type: e.type }]),
+    );
+    const nameLookup = await this.resolveConstituencyNames(candidacies, electionMap);
+
+    return candidacies.map((c) => ({
+      ...c,
+      electionName: electionMap.get(c.electionId)?.name ?? null,
+      electionType: electionMap.get(c.electionId)?.type ?? null,
+      constituencyName: nameLookup.get(`${c.electionId}:${c.constituencyId}`) ?? null,
+    }));
+  }
+
+  /**
+   * Withdraw from one race while staying active in the aspirant's other
+   * declared candidacies. If the removed row was the "primary" pair, falls
+   * back to another remaining candidacy, or back to "idle" if none are left.
+   */
+  async removeCandidacy(candidacyId: number, userId: number) {
+    const candidacy = await this.candidacyRepo.findOne({
+      where: { id: candidacyId },
+    });
+    if (!candidacy) throw new NotFoundException("Candidacy not found");
+    const aspirant = await this.assertOwnsAspirant(candidacy.aspirantId, {
+      id: userId,
+    });
+
+    await this.candidacyRepo.delete(candidacyId);
+
+    if (aspirant.electionId === candidacy.electionId) {
+      const remaining = await this.candidacyRepo.findOne({
+        where: { aspirantId: aspirant.id },
+        order: { createdAt: "ASC" },
+      });
+      // TypeORM's save() skips `undefined` properties (leaves the column
+      // untouched) — use `null` explicitly so a fully-withdrawn aspirant's
+      // electionId/constituencyId actually clear instead of keeping the
+      // stale, just-deleted candidacy's values.
+      aspirant.electionId = remaining?.electionId ?? null;
+      aspirant.constituencyId = remaining?.constituencyId ?? null;
+      aspirant.wardId = remaining?.wardId ?? null;
+      aspirant.candidacyStatus = remaining ? "declared" : "idle";
+      await this.repo.save(aspirant);
+    }
+
+    return { deleted: 1 };
   }
 
   private async dispatchMeetingNotifications(
@@ -925,12 +1098,20 @@ export class AspirantsService {
     constituencyId: number,
     userId?: number,
   ) {
+    // Matches via aspirant_candidacies — not just the aspirant's "primary"
+    // electionId/constituencyId — so an aspirant running in multiple races
+    // (e.g. Lok Sabha + Gram Panchayat) shows up under each one.
     const aspirants = await this.repo
       .createQueryBuilder("aspirant")
+      .innerJoin(
+        AspirantCandidacy,
+        "candidacy",
+        "candidacy.aspirantId = aspirant.id",
+      )
       .leftJoinAndSelect("aspirant.ward", "ward")
       .leftJoinAndSelect("aspirant.user", "user")
-      .where("aspirant.electionId = :electionId", { electionId })
-      .andWhere("aspirant.constituencyId = :constituencyId", { constituencyId })
+      .where("candidacy.electionId = :electionId", { electionId })
+      .andWhere("candidacy.constituencyId = :constituencyId", { constituencyId })
       .andWhere("aspirant.isActive = :isActive", { isActive: true })
       .andWhere("aspirant.sopAgreed = :sopAgreed", { sopAgreed: true })
       .andWhere("aspirant.selfieUrl IS NOT NULL")
@@ -1447,6 +1628,141 @@ export class AspirantsService {
     return { message: "Aspirant candidacy withdrawn. Role reverted to voter." };
   }
 
+  /**
+   * Let an idle aspirant (registered without an election/constituency) pick
+   * one once an election has been announced. Mirrors the resolution logic
+   * in create() — validates the election/ward and flips candidacyStatus.
+   */
+  async declareCandidacy(
+    aspirantId: number,
+    userId: number,
+    dto: { electionId: number; constituencyId: number },
+  ) {
+    const aspirant = await this.repo.findOne({
+      where: { id: aspirantId, userId },
+    });
+    if (!aspirant)
+      throw new NotFoundException(
+        "Aspirant not found or does not belong to this user",
+      );
+
+    await this.upsertCandidacy(aspirant, dto.electionId, dto.constituencyId);
+
+    return { ...aspirant, documentStatus: aspirant.getDocumentStatus() };
+  }
+
+  /** Bulk-attach supportCount + isSupportedByMe to a list of proposals. */
+  private async withSupportCounts(
+    proposals: AspirantProposal[],
+    currentUserId?: number,
+  ) {
+    if (!proposals.length) return [];
+    const ids = proposals.map((p) => p.id);
+
+    const counts = await this.proposalSupportRepo
+      .createQueryBuilder("s")
+      .select("s.proposalId", "proposalId")
+      .addSelect("COUNT(s.id)", "count")
+      .where("s.proposalId IN (:...ids)", { ids })
+      .groupBy("s.proposalId")
+      .getRawMany();
+    const countMap = new Map<number, number>(
+      counts.map((c) => [Number(c.proposalId), Number(c.count)]),
+    );
+
+    let supportedSet = new Set<number>();
+    if (currentUserId) {
+      const mine = await this.proposalSupportRepo.find({
+        where: { proposalId: In(ids), userId: currentUserId },
+      });
+      supportedSet = new Set(mine.map((m) => m.proposalId));
+    }
+
+    return proposals.map((p) => ({
+      ...p,
+      supportCount: countMap.get(p.id) ?? 0,
+      isSupportedByMe: supportedSet.has(p.id),
+    }));
+  }
+
+  async createProposal(
+    aspirantId: number,
+    userId: number,
+    dto: CreateProposalDto,
+  ) {
+    await this.assertOwnsAspirant(aspirantId, { id: userId });
+    const proposal = this.proposalRepo.create({
+      aspirantId,
+      title: dto.title,
+      details: dto.details,
+    });
+    return this.proposalRepo.save(proposal);
+  }
+
+  async listProposals(aspirantId: number, currentUserId?: number) {
+    const proposals = await this.proposalRepo.find({
+      where: { aspirantId },
+      order: { createdAt: "DESC" },
+    });
+    return this.withSupportCounts(proposals, currentUserId);
+  }
+
+  async updateProposal(
+    proposalId: number,
+    userId: number,
+    dto: UpdateProposalDto,
+  ) {
+    const proposal = await this.proposalRepo.findOne({
+      where: { id: proposalId },
+    });
+    if (!proposal) throw new NotFoundException("Proposal not found");
+    await this.assertOwnsAspirant(proposal.aspirantId, { id: userId });
+
+    if (dto.title !== undefined) proposal.title = dto.title;
+    if (dto.details !== undefined) proposal.details = dto.details;
+    return this.proposalRepo.save(proposal);
+  }
+
+  async deleteProposal(proposalId: number, userId: number) {
+    const proposal = await this.proposalRepo.findOne({
+      where: { id: proposalId },
+    });
+    if (!proposal) throw new NotFoundException("Proposal not found");
+    await this.assertOwnsAspirant(proposal.aspirantId, { id: userId });
+    await this.proposalRepo.delete(proposalId);
+    return { deleted: 1 };
+  }
+
+  /** A citizen backs a specific proposal/idea (not the aspirant overall). */
+  async supportProposal(proposalId: number, userId: number) {
+    const proposal = await this.proposalRepo.findOne({
+      where: { id: proposalId },
+    });
+    if (!proposal) throw new NotFoundException("Proposal not found");
+
+    const existing = await this.proposalSupportRepo.findOne({
+      where: { proposalId, userId },
+    });
+    if (!existing) {
+      await this.proposalSupportRepo.save(
+        this.proposalSupportRepo.create({ proposalId, userId }),
+      );
+    }
+    const count = await this.proposalSupportRepo.count({
+      where: { proposalId },
+    });
+    return { proposalId, isSupportedByMe: true, supportCount: count };
+  }
+
+  /** Reversible — a citizen can withdraw their support at any time. */
+  async unsupportProposal(proposalId: number, userId: number) {
+    await this.proposalSupportRepo.delete({ proposalId, userId });
+    const count = await this.proposalSupportRepo.count({
+      where: { proposalId },
+    });
+    return { proposalId, isSupportedByMe: false, supportCount: count };
+  }
+
   async updateAspirant(
     aspirantId: number,
     userId: number,
@@ -1806,6 +2122,30 @@ export class AspirantsService {
           attendingCount: 35,
           notAttendingCount: 4,
           rating: demoMeetingRating4,
+        },
+      ],
+      proposals: [
+        {
+          id: 0,
+          createdAt: now,
+          updatedAt: now,
+          aspirantId: 0,
+          title: "RTI-backed pothole tracking",
+          details:
+            "## What\nCross-reference RTI road-maintenance records with citizen-reported potholes to flag the worst-neglected stretches first.\n\n## Cost\nZero-fund — built entirely on data already public under RTI.",
+          supportCount: 134,
+          isSupportedByMe: false,
+        },
+        {
+          id: -1,
+          createdAt: now,
+          updatedAt: now,
+          aspirantId: 0,
+          title: "Public ledger for ward maintenance spending",
+          details:
+            "## What\nPublish every bill and receipt for ward-level repairs within 24 hours, using the existing Live Ledger feature.\n\n## Cost\nZero-fund — process change only, no new infrastructure.",
+          supportCount: 89,
+          isSupportedByMe: false,
         },
       ],
     };

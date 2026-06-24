@@ -40,6 +40,9 @@ import {
 // Tighter limits for auth endpoints to prevent brute-force / SMS-burn attacks.
 const STRICT_AUTH_THROTTLE = { default: { ttl: 60_000, limit: 5 } };
 
+// Dev-only mock OAuth identity, persisted across relogins in this browser.
+const MOCK_IDENTITY_COOKIE = "mock_identity";
+
 @ApiTags("Authentication")
 @Controller("auth")
 export class AuthController {
@@ -83,9 +86,17 @@ export class AuthController {
       "Redirects the browser to Google's consent screen. After consent, Google redirects back to /auth/google/callback.",
   })
   @ApiQuery({ name: "state", required: false })
+  @ApiQuery({
+    name: "fresh",
+    required: false,
+    description:
+      "Dev-only mock OAuth: pass fresh=1 to force a brand-new fake identity " +
+      "instead of reusing the one saved in this browser's mock_identity cookie.",
+  })
   @ApiResponse({ status: 302, description: "Redirect to Google OAuth" })
   googleOAuthRedirect(
     @Query("state") clientState: string | undefined,
+    @Query("fresh") fresh: string | undefined,
     @Res() res: Response,
   ) {
     // Embed the frontend's CSRF state inside an HMAC-signed, fresh-stamped
@@ -96,7 +107,7 @@ export class AuthController {
     const state = this.authService.issueOAuthState(
       clientState || randomBytes(16).toString("hex"),
     );
-    const url = this.authService.getGoogleAuthUrl(state);
+    const url = this.authService.getGoogleAuthUrl(state, fresh === "1");
     return res.redirect(url);
   }
 
@@ -114,6 +125,8 @@ export class AuthController {
     @Query("code") code: string,
     @Query("state") state: string | undefined,
     @Query("error") error: string | undefined,
+    @Query("fresh") fresh: string | undefined,
+    @Req() req: Request,
     @Res() res: Response,
   ) {
     if (error) {
@@ -123,8 +136,23 @@ export class AuthController {
     if (!clientState) {
       return res.status(400).send("Invalid OAuth state — possible CSRF");
     }
-    const { token, errorRedirectUrl } =
-      await this.authService.handleGoogleCallback(code);
+    const mockIdentityCookie = readCookie(req, MOCK_IDENTITY_COOKIE) ?? undefined;
+    const { token, errorRedirectUrl, mockIdentityCookie: cookieToSet } =
+      await this.authService.handleGoogleCallback(
+        code,
+        mockIdentityCookie,
+        fresh === "1",
+      );
+    if (cookieToSet) {
+      // Dev-only — lets a relogin after session expiry come back as the
+      // same fake person instead of a brand-new random one. 180-day TTL is
+      // plenty for local dev; harmless if it outlives that.
+      res.cookie(MOCK_IDENTITY_COOKIE, cookieToSet, {
+        httpOnly: true,
+        sameSite: "lax",
+        maxAge: 180 * 24 * 60 * 60 * 1000,
+      });
+    }
     if (errorRedirectUrl) {
       return res.redirect(errorRedirectUrl);
     }

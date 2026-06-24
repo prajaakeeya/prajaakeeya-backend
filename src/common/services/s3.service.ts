@@ -7,11 +7,17 @@ import {
 import { Upload } from "@aws-sdk/lib-storage";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { ConfigService } from "@nestjs/config";
-import { basename, extname } from "path";
+import * as fs from "fs";
+import * as path from "path";
 
 // Filenames are timestamp-prefixed so the same key never changes content —
 // safe for a one-year immutable browser/CDN cache.
 const IMMUTABLE_CACHE_HEADER = "public, max-age=31536000, immutable";
+
+// Dev-only: writes to ./uploads on disk instead of S3, served back via the
+// static route registered in main.ts. Hard-gated to non-production so a
+// stray env var can never divert production uploads onto local disk.
+const LOCAL_UPLOADS_DIR = path.join(process.cwd(), "uploads");
 
 @Injectable()
 export class S3Service {
@@ -30,6 +36,18 @@ export class S3Service {
     this.bucketName =
       this.configService.get("AWS_S3_BUCKET_NAME") || "prajaakeeya";
     this.cdnDomain = this.configService.get<string>("AWS_CLOUDFRONT_DOMAIN");
+  }
+
+  private isLocalStorageEnabled(): boolean {
+    return (
+      this.configService.get<string>("USE_LOCAL_STORAGE") === "true" &&
+      this.configService.get<string>("NODE_ENV") !== "production"
+    );
+  }
+
+  private buildLocalUrl(key: string): string {
+    const port = this.configService.get<string>("PORT") || "3000";
+    return `http://localhost:${port}/uploads/${key}`;
   }
 
   private buildPublicUrl(key: string): string {
@@ -52,15 +70,18 @@ export class S3Service {
     // Sanitize the client-supplied name: strip any path components and reduce
     // to a safe charset so the key can't contain "..", control chars, RTL
     // overrides or null bytes, and stays parseable by deleteFile().
-    const safeBase = basename(file.originalname).replace(
-      /[^a-zA-Z0-9._-]/g,
-      "_",
-    );
-    const ext = extname(safeBase).slice(0, 10);
-    const stem =
-      safeBase.slice(0, safeBase.length - ext.length).slice(0, 80) || "file";
+    const safeBase = path.basename(file.originalname).replace(/[^a-zA-Z0-9._-]/g, "_");
+    const ext = path.extname(safeBase).slice(0, 10);
+    const stem = safeBase.slice(0, safeBase.length - ext.length).slice(0, 80) || "file";
     const fileName = `${timestamp}-${stem}${ext}`;
     const key = folder ? `${folder}/${fileName}` : fileName;
+
+    if (this.isLocalStorageEnabled()) {
+      const filePath = path.join(LOCAL_UPLOADS_DIR, key);
+      await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
+      await fs.promises.writeFile(filePath, file.buffer);
+      return this.buildLocalUrl(key);
+    }
 
     const upload = new Upload({
       client: this.s3Client,
@@ -85,6 +106,13 @@ export class S3Service {
   async deleteFile(fileUrl: string): Promise<void> {
     try {
       const key = this.extractKeyFromUrl(fileUrl);
+      if (fileUrl.includes("/uploads/")) {
+        const localKey = key.replace(/^uploads\//, "");
+        await fs.promises
+          .unlink(path.join(LOCAL_UPLOADS_DIR, localKey))
+          .catch(() => {});
+        return;
+      }
       const command = new DeleteObjectCommand({
         Bucket: this.bucketName,
         Key: key,
@@ -121,6 +149,9 @@ export class S3Service {
    * Generate a presigned GET URL for a key
    */
   async getPresignedUrl(key: string, expiresInSeconds = 3600): Promise<string> {
+    // Local files are served directly by the static route — no signing.
+    if (this.isLocalStorageEnabled()) return this.buildLocalUrl(key);
+
     // CDN serves cached bytes for ~zero egress cost — prefer it whenever set.
     if (this.cdnDomain) return this.buildPublicUrl(key);
 

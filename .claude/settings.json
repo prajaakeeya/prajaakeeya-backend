@@ -1,9 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(grep -nE \"get|post|delete|patch|\\\\`/|'/\")",
-      "Bash(grep -rnE \"api\\\\.|client\\\\.|/voters|/wards|upload|extract|\\\\`/|'/\" pages/voter-upload/)",
-      "Bash(grep -rnE \"['\\\\\"\\\\`]/?auth/\\(login|verify-otp|send-otp|resend-otp|aspirant/[a-z-]*otp\\)|google\" src/services src/store src/hooks)"
-    ]
-  }
-}
