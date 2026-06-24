@@ -3,6 +3,7 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { User } from "../users/user.entity";
 import { Aspirant } from "../aspirants/aspirant.entity";
+import { AspirantCandidacy } from "../aspirants/aspirant-candidacy.entity";
 import { ElectionsService } from "../elections/elections.service";
 import { ElectionType } from "../elections/election.entity";
 
@@ -17,8 +18,8 @@ const USER_CONSTITUENCY_COLUMN: Record<ElectionType, string> = {
 export class StatsService {
   constructor(
     @InjectRepository(User) private readonly userRepo: Repository<User>,
-    @InjectRepository(Aspirant)
-    private readonly aspirantRepo: Repository<Aspirant>,
+    @InjectRepository(AspirantCandidacy)
+    private readonly candidacyRepo: Repository<AspirantCandidacy>,
     private readonly electionsService: ElectionsService,
   ) {}
 
@@ -41,10 +42,14 @@ export class StatsService {
         .andWhere("u.is_blocked = false")
         .andWhere("u.is_self_deleted = false")
         .getRawOne<{ count: string }>(),
-      this.aspirantRepo
-        .createQueryBuilder("a")
-        .where("a.electionId = :electionId", { electionId })
-        .andWhere("a.constituencyId = :constituencyId", { constituencyId })
+      // Counts via aspirant_candidacies — not just the aspirant's "primary"
+      // electionId/constituencyId — so a multi-race aspirant is counted in
+      // every constituency they've declared for.
+      this.candidacyRepo
+        .createQueryBuilder("c")
+        .innerJoin(Aspirant, "a", "a.id = c.aspirantId")
+        .where("c.electionId = :electionId", { electionId })
+        .andWhere("c.constituencyId = :constituencyId", { constituencyId })
         .andWhere("a.isActive = :isActive", { isActive: true })
         .andWhere("a.sopAgreed = :sopAgreed", { sopAgreed: true })
         .andWhere("a.selfieUrl IS NOT NULL")

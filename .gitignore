@@ -6,6 +6,9 @@ uploads
 !.env.example
 .DS_Store
 firebase-test.html
+
+# AI tooling / editor assistants
+.claude/
 # Firebase service-account secrets (server-only — never commit)
 firebase-service-account*.json
 *serviceAccount*.json

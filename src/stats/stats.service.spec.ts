@@ -23,6 +23,7 @@ function makeQb(terminal: { getRawOne?: any; getCount?: any }): any {
   const qb: any = {
     select: jest.fn().mockReturnThis(),
     from: jest.fn().mockReturnThis(),
+    innerJoin: jest.fn().mockReturnThis(),
     where: jest.fn().mockReturnThis(),
     andWhere: jest.fn().mockReturnThis(),
   };
@@ -44,10 +45,10 @@ function makeService(opts: {
   voterRow?: any; // { count } | null
   aspirantCount?: number;
   nameRow?: any; // { name } | null | Error
-}): { service: any; managerQbs: any[]; aspirantQb: any } {
+}): { service: any; managerQbs: any[]; candidacyQb: any } {
   const voterQb = makeQb({ getRawOne: opts.voterRow ?? { count: "0" } });
   const nameQb = makeQb({ getRawOne: opts.nameRow ?? { name: null } });
-  const aspirantQb = makeQb({ getCount: opts.aspirantCount ?? 0 });
+  const candidacyQb = makeQb({ getCount: opts.aspirantCount ?? 0 });
 
   const managerQbs = [voterQb, nameQb];
   let managerIdx = 0;
@@ -58,11 +59,11 @@ function makeService(opts: {
   const service: any = Object.create(StatsService.prototype);
   Object.assign(service, {
     userRepo: { manager },
-    aspirantRepo: { createQueryBuilder: jest.fn(() => aspirantQb) },
+    candidacyRepo: { createQueryBuilder: jest.fn(() => candidacyQb) },
     electionsService: { findById: jest.fn(async () => opts.election) },
   });
 
-  return { service, managerQbs, aspirantQb };
+  return { service, managerQbs, candidacyQb };
 }
 
 describe("StatsService — findStatsByConstituency()", () => {
@@ -163,8 +164,8 @@ describe("StatsService — findStatsByConstituency()", () => {
     );
   });
 
-  it("counts only onboarded, active aspirants for the election + constituency", async () => {
-    const { service, aspirantQb } = makeService({
+  it("counts only onboarded, active aspirants via aspirant_candidacies for the election + constituency", async () => {
+    const { service, candidacyQb } = makeService({
       election: { id: 4, type: "lok_sabha", name: "LS" },
       aspirantCount: 7,
     });
@@ -172,28 +173,29 @@ describe("StatsService — findStatsByConstituency()", () => {
     const result = await service.findStatsByConstituency(4, 22);
 
     expect(result.totalAspirants).toBe(7);
-    expect(aspirantQb.where).toHaveBeenCalledWith("a.electionId = :electionId", {
+    expect(candidacyQb.innerJoin).toHaveBeenCalled();
+    expect(candidacyQb.where).toHaveBeenCalledWith("c.electionId = :electionId", {
       electionId: 4,
     });
-    expect(aspirantQb.andWhere).toHaveBeenCalledWith(
-      "a.constituencyId = :constituencyId",
+    expect(candidacyQb.andWhere).toHaveBeenCalledWith(
+      "c.constituencyId = :constituencyId",
       { constituencyId: 22 },
     );
-    expect(aspirantQb.andWhere).toHaveBeenCalledWith("a.isActive = :isActive", {
+    expect(candidacyQb.andWhere).toHaveBeenCalledWith("a.isActive = :isActive", {
       isActive: true,
     });
-    expect(aspirantQb.andWhere).toHaveBeenCalledWith("a.sopAgreed = :sopAgreed", {
+    expect(candidacyQb.andWhere).toHaveBeenCalledWith("a.sopAgreed = :sopAgreed", {
       sopAgreed: true,
     });
-    expect(aspirantQb.andWhere).toHaveBeenCalledWith("a.selfieUrl IS NOT NULL");
-    expect(aspirantQb.getCount).toHaveBeenCalled();
+    expect(candidacyQb.andWhere).toHaveBeenCalledWith("a.selfieUrl IS NOT NULL");
+    expect(candidacyQb.getCount).toHaveBeenCalled();
   });
 
   it("propagates NotFoundException when the election does not exist", async () => {
     const service: any = Object.create(StatsService.prototype);
     Object.assign(service, {
       userRepo: { manager: { createQueryBuilder: jest.fn() } },
-      aspirantRepo: { createQueryBuilder: jest.fn() },
+      candidacyRepo: { createQueryBuilder: jest.fn() },
       electionsService: {
         findById: jest.fn(async () => {
           throw new NotFoundException("Election with id 99 not found");

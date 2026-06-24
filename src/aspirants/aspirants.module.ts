@@ -7,6 +7,9 @@ import { AspirantVisit } from "./aspirant-visit.entity";
 import { VisitResponse } from "./visit-response.entity";
 import { MeetingResponse } from "./meeting-response.entity";
 import { ActivityRating } from "./activity-rating.entity";
+import { AspirantProposal } from "./aspirant-proposal.entity";
+import { ProposalSupport } from "./proposal-support.entity";
+import { AspirantCandidacy } from "./aspirant-candidacy.entity";
 import { UserAspirantInteraction } from "../users/user-aspirant-interaction.entity";
 import { VotesModule } from "../votes/votes.module";
 import { AspirantsService } from "./aspirants.service";
@@ -27,6 +30,9 @@ import { NotificationsModule } from "../notifications/notifications.module";
       MeetingResponse,
       ActivityRating,
       UserAspirantInteraction,
+      AspirantProposal,
+      ProposalSupport,
+      AspirantCandidacy,
     ]),
     UsersModule,
     WardsModule,

@@ -46,6 +46,9 @@ import { AspirantVisit } from "./aspirants/aspirant-visit.entity";
 import { VisitResponse } from "./aspirants/visit-response.entity";
 import { MeetingResponse } from "./aspirants/meeting-response.entity";
 import { ActivityRating } from "./aspirants/activity-rating.entity";
+import { AspirantProposal } from "./aspirants/aspirant-proposal.entity";
+import { ProposalSupport } from "./aspirants/proposal-support.entity";
+import { AspirantCandidacy } from "./aspirants/aspirant-candidacy.entity";
 import { PendingAspirantRegistration } from "./aspirants/pending-aspirant-registration.entity";
 import { AspirantDiscussionModule } from "./aspirant-discussion/aspirant-discussion.module";
 import { AspirantDiscussionMessage } from "./aspirant-discussion/aspirant-discussion-message.entity";
@@ -185,6 +188,9 @@ function resolveRedisUrl(): string | undefined {
         VisitResponse,
         MeetingResponse,
         ActivityRating,
+        AspirantProposal,
+        ProposalSupport,
+        AspirantCandidacy,
         PendingAspirantRegistration,
         AspirantDiscussionMessage,
         AdminDocument,

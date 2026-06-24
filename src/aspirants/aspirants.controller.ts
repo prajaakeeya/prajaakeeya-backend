@@ -36,6 +36,9 @@ import { DeleteVisitsDto } from "./dto/delete-visits.dto";
 import { RateActivityDto } from "./dto/rate-activity.dto";
 import { UpdateAspirantDto } from "./dto/update-aspirant.dto";
 import { UpdateAspirantPermissionsDto } from "./dto/update-aspirant-permissions.dto";
+import { DeclareCandidacyDto } from "./dto/declare-candidacy.dto";
+import { CreateProposalDto } from "./dto/create-proposal.dto";
+import { UpdateProposalDto } from "./dto/update-proposal.dto";
 
 @ApiTags("Aspirants")
 @Controller("aspirants")
@@ -536,6 +539,146 @@ export class AspirantsController {
     @Body() dto: UpdateAspirantDto,
   ) {
     return this.aspirantsService.updateAspirant(Number(id), user.id, dto);
+  }
+
+  @Patch(":id/candidacy")
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: "Declare (or add another) candidacy",
+    description:
+      "Lets an aspirant declare an election/constituency once an election has " +
+      "been announced. Calling this again for a different election type adds " +
+      "an additional candidacy (e.g. Lok Sabha + Gram Panchayat at once) " +
+      "rather than replacing the first — see GET :id/candidacies for the full list.",
+  })
+  @ApiParam({
+    name: "id",
+    type: "number",
+    description: "Aspirant ID",
+    example: 5,
+  })
+  @ApiResponse({ status: 200, description: "Candidacy declared successfully" })
+  @ApiResponse({ status: 404, description: "Aspirant not found" })
+  declareCandidacy(
+    @CurrentUser() user: any,
+    @Param("id") id: string,
+    @Body() dto: DeclareCandidacyDto,
+  ) {
+    return this.aspirantsService.declareCandidacy(Number(id), user.id, dto);
+  }
+
+  @Get(":id/candidacies")
+  @Public()
+  @ApiOperation({
+    summary: "List all races an aspirant has declared candidacy for",
+  })
+  @ApiParam({ name: "id", type: "number", description: "Aspirant ID", example: 5 })
+  listCandidacies(@Param("id") id: string) {
+    return this.aspirantsService.listCandidacies(Number(id));
+  }
+
+  @Delete("candidacies/:candidacyId")
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: "Withdraw from one race, keeping other declared candidacies active",
+  })
+  @ApiParam({ name: "candidacyId", type: "number", example: 9 })
+  removeCandidacy(
+    @CurrentUser() user: any,
+    @Param("candidacyId") candidacyId: string,
+  ) {
+    return this.aspirantsService.removeCandidacy(Number(candidacyId), user.id);
+  }
+
+  @Post(":id/proposals")
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: "Aspirant creates a project/idea for citizens to back",
+  })
+  @ApiParam({ name: "id", type: "number", description: "Aspirant ID", example: 5 })
+  @ApiResponse({ status: 201, description: "Proposal created" })
+  createProposal(
+    @CurrentUser() user: any,
+    @Param("id") id: string,
+    @Body() dto: CreateProposalDto,
+  ) {
+    return this.aspirantsService.createProposal(Number(id), user.id, dto);
+  }
+
+  @Get(":id/proposals")
+  @Public()
+  @UseGuards(OptionalJwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: "List an aspirant's proposals, with support counts",
+    description:
+      "Public. If a valid token is supplied, each proposal includes isSupportedByMe.",
+  })
+  @ApiParam({ name: "id", type: "number", description: "Aspirant ID", example: 5 })
+  listProposals(@Param("id") id: string, @CurrentUser() user?: any) {
+    return this.aspirantsService.listProposals(Number(id), user?.id);
+  }
+
+  @Patch("proposals/:proposalId")
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: "Aspirant edits their own proposal" })
+  @ApiParam({ name: "proposalId", type: "number", example: 12 })
+  updateProposal(
+    @CurrentUser() user: any,
+    @Param("proposalId") proposalId: string,
+    @Body() dto: UpdateProposalDto,
+  ) {
+    return this.aspirantsService.updateProposal(
+      Number(proposalId),
+      user.id,
+      dto,
+    );
+  }
+
+  @Delete("proposals/:proposalId")
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: "Aspirant deletes their own proposal" })
+  @ApiParam({ name: "proposalId", type: "number", example: 12 })
+  deleteProposal(
+    @CurrentUser() user: any,
+    @Param("proposalId") proposalId: string,
+  ) {
+    return this.aspirantsService.deleteProposal(Number(proposalId), user.id);
+  }
+
+  @Post("proposals/:proposalId/support")
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: "Citizen backs a specific proposal/idea" })
+  @ApiParam({ name: "proposalId", type: "number", example: 12 })
+  @ApiResponse({ status: 201, description: "Support recorded" })
+  supportProposal(
+    @CurrentUser() user: any,
+    @Param("proposalId") proposalId: string,
+  ) {
+    return this.aspirantsService.supportProposal(Number(proposalId), user.id);
+  }
+
+  @Delete("proposals/:proposalId/support")
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: "Citizen withdraws their support from a proposal/idea",
+  })
+  @ApiParam({ name: "proposalId", type: "number", example: 12 })
+  unsupportProposal(
+    @CurrentUser() user: any,
+    @Param("proposalId") proposalId: string,
+  ) {
+    return this.aspirantsService.unsupportProposal(
+      Number(proposalId),
+      user.id,
+    );
   }
 
   @Patch(":id/approve")

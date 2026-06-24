@@ -104,10 +104,81 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
 
   // ===== Google OAuth 2.0 Authorization Code Flow =====
 
-  getGoogleAuthUrl(state?: string): string {
-    const clientId = this.configService.get<string>("GOOGLE_CLIENT_ID");
+  /**
+   * Dev-only bypass for the real Google OAuth token exchange. Hard-gated to
+   * non-production so a stray env var can never enable it on a live server.
+   */
+  private isMockOAuthEnabled(): boolean {
+    return (
+      this.configService.get<string>("GOOGLE_OAUTH_MOCK") === "true" &&
+      this.configService.get<string>("NODE_ENV") !== "production"
+    );
+  }
+
+  /** A fresh fake Google profile — used the first time, or when a fresh identity is requested. */
+  private generateMockProfile(): { email: string; name: string; email_verified: true } {
+    const firstNames = ["Asha", "Ravi", "Priya", "Karthik", "Meera", "Vikram", "Divya", "Suresh"];
+    const lastNames = ["Rao", "Kumar", "Nair", "Gowda", "Reddy", "Iyer", "Shetty", "Patil"];
+    const first = firstNames[Math.floor(Math.random() * firstNames.length)];
+    const last = lastNames[Math.floor(Math.random() * lastNames.length)];
+    const suffix = require("crypto").randomBytes(4).toString("hex");
+    return {
+      email: `${first.toLowerCase()}.${last.toLowerCase()}.${suffix}@mock.test`,
+      name: `${first} ${last}`,
+      email_verified: true,
+    };
+  }
+
+  /**
+   * Resolve the mock identity for this browser: reuse the one stored in the
+   * `mock_identity` cookie (so a relogin after JWT expiry comes back as the
+   * same fake person), unless none exists yet or a fresh one was explicitly
+   * requested (`/auth/google?fresh=1`) — e.g. for testing multiple accounts.
+   * Returns the profile plus the (plain, not pre-encoded — res.cookie()
+   * handles that) cookie value the controller should set.
+   */
+  private resolveMockProfile(
+    existingCookieJson?: string,
+    forceFresh?: boolean,
+  ): { profile: { email: string; name: string; email_verified: true }; cookieValue: string } {
+    if (!forceFresh && existingCookieJson) {
+      try {
+        const parsed = JSON.parse(existingCookieJson);
+        if (typeof parsed?.email === "string" && typeof parsed?.name === "string") {
+          return {
+            profile: { ...parsed, email_verified: true },
+            cookieValue: existingCookieJson,
+          };
+        }
+      } catch {
+        /* fall through to generating a fresh one */
+      }
+    }
+    const profile = this.generateMockProfile();
+    return {
+      profile,
+      cookieValue: JSON.stringify({ email: profile.email, name: profile.name }),
+    };
+  }
+
+  getGoogleAuthUrl(state?: string, fresh?: boolean): string {
     const redirectUri = this.configService.get<string>("GOOGLE_REDIRECT_URI");
-    if (!clientId || !redirectUri) {
+    if (!redirectUri) {
+      throw new BadRequestException("Google OAuth not configured");
+    }
+
+    if (this.isMockOAuthEnabled()) {
+      // Skip Google entirely — redirect straight back to our own callback
+      // with a synthetic code, so the rest of the pipeline (state
+      // verification, user creation, JWT issuance) is exercised unchanged.
+      const params = new URLSearchParams({ code: "mock" });
+      if (state) params.set("state", state);
+      if (fresh) params.set("fresh", "1");
+      return `${redirectUri}?${params.toString()}`;
+    }
+
+    const clientId = this.configService.get<string>("GOOGLE_CLIENT_ID");
+    if (!clientId) {
       throw new BadRequestException("Google OAuth not configured");
     }
     const params = new URLSearchParams({
@@ -123,68 +194,93 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
     return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
   }
 
-  async handleGoogleCallback(code: string): Promise<{
+  async handleGoogleCallback(
+    code: string,
+    mockIdentityCookie?: string,
+    forceFreshMockIdentity?: boolean,
+  ): Promise<{
     token: string;
     user: User;
     redirectUrl: string;
+    mockIdentityCookie?: string;
   }> {
     if (!code) {
       throw new BadRequestException("Authorization code is required");
     }
 
-    const clientId = this.configService.get<string>("GOOGLE_CLIENT_ID");
-    const clientSecret = this.configService.get<string>("GOOGLE_CLIENT_SECRET");
-    const redirectUri = this.configService.get<string>("GOOGLE_REDIRECT_URI");
     const frontendRedirect = this.configService.get<string>(
       "GOOGLE_FRONTEND_REDIRECT_URI",
     );
-
-    if (!clientId || !clientSecret || !redirectUri || !frontendRedirect) {
+    if (!frontendRedirect) {
       throw new BadRequestException("Google OAuth not configured");
     }
 
-    // 1. Exchange code for tokens
-    let tokenResponse;
-    try {
-      tokenResponse = await axios.post(
-        "https://oauth2.googleapis.com/token",
-        new URLSearchParams({
-          code,
-          client_id: clientId,
-          client_secret: clientSecret,
-          redirect_uri: redirectUri,
-          grant_type: "authorization_code",
-        }).toString(),
-        {
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          timeout: 10000,
-        },
-      );
-    } catch (error: any) {
-      throw new UnauthorizedException(
-        error.response?.data?.error_description ||
-          "Failed to exchange authorization code",
-      );
-    }
+    const mockEnabled = this.isMockOAuthEnabled();
 
-    const accessToken = tokenResponse.data?.access_token;
-    if (!accessToken) {
-      throw new UnauthorizedException("No access token returned by Google");
-    }
-
-    // 2. Fetch user profile
     let profile: any;
-    try {
-      const profileResponse = await axios.get(
-        "https://www.googleapis.com/oauth2/v3/userinfo",
-        {
-          headers: { Authorization: `Bearer ${accessToken}` },
-          timeout: 10000,
-        },
+    let mockIdentityCookieToSet: string | undefined;
+    if (mockEnabled) {
+      // Dev-only bypass — see isMockOAuthEnabled(). Skips Google's token
+      // exchange and userinfo lookup, but every step after this (find/create
+      // user, JWT issuance, redirect) is identical to the real flow. Reuses
+      // the same fake identity across relogins (e.g. after JWT expiry) via
+      // the mock_identity cookie, unless a fresh one was requested.
+      const resolved = this.resolveMockProfile(
+        mockIdentityCookie,
+        forceFreshMockIdentity,
       );
-      profile = profileResponse.data;
-    } catch (error: any) {
-      throw new UnauthorizedException("Failed to fetch Google user profile");
+      profile = resolved.profile;
+      mockIdentityCookieToSet = resolved.cookieValue;
+    } else {
+      const clientId = this.configService.get<string>("GOOGLE_CLIENT_ID");
+      const clientSecret = this.configService.get<string>("GOOGLE_CLIENT_SECRET");
+      const redirectUri = this.configService.get<string>("GOOGLE_REDIRECT_URI");
+      if (!clientId || !clientSecret || !redirectUri) {
+        throw new BadRequestException("Google OAuth not configured");
+      }
+
+      // 1. Exchange code for tokens
+      let tokenResponse;
+      try {
+        tokenResponse = await axios.post(
+          "https://oauth2.googleapis.com/token",
+          new URLSearchParams({
+            code,
+            client_id: clientId,
+            client_secret: clientSecret,
+            redirect_uri: redirectUri,
+            grant_type: "authorization_code",
+          }).toString(),
+          {
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            timeout: 10000,
+          },
+        );
+      } catch (error: any) {
+        throw new UnauthorizedException(
+          error.response?.data?.error_description ||
+            "Failed to exchange authorization code",
+        );
+      }
+
+      const accessToken = tokenResponse.data?.access_token;
+      if (!accessToken) {
+        throw new UnauthorizedException("No access token returned by Google");
+      }
+
+      // 2. Fetch user profile
+      try {
+        const profileResponse = await axios.get(
+          "https://www.googleapis.com/oauth2/v3/userinfo",
+          {
+            headers: { Authorization: `Bearer ${accessToken}` },
+            timeout: 10000,
+          },
+        );
+        profile = profileResponse.data;
+      } catch (error: any) {
+        throw new UnauthorizedException("Failed to fetch Google user profile");
+      }
     }
 
     const email: string | undefined = profile?.email;
@@ -203,7 +299,7 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
       const errorMsg =
         "Your account has been blocked. Please contact support.";
       const redirectUrl = `${frontendRedirect}${sep}error=${encodeURIComponent(errorMsg)}`;
-      return { token: "", user, redirectUrl };
+      return { token: "", user, redirectUrl, mockIdentityCookie: mockIdentityCookieToSet };
     }
 
     if (user && (user.isSelfDeleted || (user.isBlocked && user.name === "Deleted User"))) {
@@ -227,7 +323,7 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
     const sep = frontendRedirect.includes("?") ? "&" : "?";
     const redirectUrl = `${frontendRedirect}${sep}token=${encodeURIComponent(jwt)}`;
 
-    return { token: jwt, user: user!, redirectUrl };
+    return { token: jwt, user: user!, redirectUrl, mockIdentityCookie: mockIdentityCookieToSet };
   }
 
   onModuleInit() {
@@ -305,7 +401,7 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
    */
   private async resolveSavedConstituencies(
     user: User,
-    aspirant?: { electionId?: number; constituencyId?: number } | null,
+    aspirant?: { electionId?: number | null; constituencyId?: number | null } | null,
     aspirantElectionType?: string | null,
   ) {
     const aspirantBucketId = (type: string) =>
