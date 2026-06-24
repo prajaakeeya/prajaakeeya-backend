@@ -50,8 +50,11 @@ export class NotificationsController {
   @Delete("device-token")
   @ApiOperation({ summary: "Unregister an FCM device token (e.g. on logout)" })
   @ApiResponse({ status: 200, description: "Token removed" })
-  async unregisterDeviceToken(@Body() dto: RemoveDeviceTokenDto) {
-    await this.firebase.removeToken(dto.token);
+  async unregisterDeviceToken(
+    @CurrentUser() user: any,
+    @Body() dto: RemoveDeviceTokenDto,
+  ) {
+    await this.firebase.removeToken(user.id, dto.token);
     return { ok: true };
   }
 

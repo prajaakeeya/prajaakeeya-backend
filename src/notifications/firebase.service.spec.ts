@@ -33,10 +33,10 @@ describe("FirebaseService", () => {
     expect(save).toHaveBeenCalledWith(existing);
   });
 
-  it("removeToken deletes by token", async () => {
+  it("removeToken deletes only the caller's own token", async () => {
     const del = jest.fn(async () => ({}));
-    await makeService({ delete: del }).removeToken("tok-1");
-    expect(del).toHaveBeenCalledWith({ token: "tok-1" });
+    await makeService({ delete: del }).removeToken(57, "tok-1");
+    expect(del).toHaveBeenCalledWith({ userId: 57, token: "tok-1" });
   });
 
   it("sendToUsers is a no-op when Firebase is not configured", async () => {

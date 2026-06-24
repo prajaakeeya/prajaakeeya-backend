@@ -1,6 +1,6 @@
 import { ApiPropertyOptional } from "@nestjs/swagger";
 import { Type } from "class-transformer";
-import { IsBoolean, IsInt, IsOptional, Min } from "class-validator";
+import { IsBoolean, IsInt, IsOptional, Min, Max } from "class-validator";
 
 export class ListNotificationsDto {
   @ApiPropertyOptional({ default: 1, minimum: 1 })
@@ -14,6 +14,7 @@ export class ListNotificationsDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
+  @Max(100)
   @IsOptional()
   limit?: number = 20;
 

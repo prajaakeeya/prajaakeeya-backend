@@ -15,6 +15,15 @@ export class GeographyService {
     private readonly stateRepo: Repository<State>,
   ) {}
 
+  private readonly inflight = new Map<string, Promise<any>>();
+  private singleFlight<T>(key: string, fn: () => Promise<T>): Promise<T> {
+    const hit = this.inflight.get(key) as Promise<T> | undefined;
+    if (hit) return hit;
+    const p = fn().finally(() => this.inflight.delete(key));
+    this.inflight.set(key, p);
+    return p;
+  }
+
   async createState(dto: CreateStateDto) {
     const existing = await this.stateRepo.findOne({
       where: { name: dto.name },
@@ -27,7 +36,9 @@ export class GeographyService {
   }
 
   findAllStates() {
-    return this.stateRepo.find({ order: { name: "ASC" } });
+    return this.singleFlight("states", () =>
+      this.stateRepo.find({ order: { name: "ASC" } }),
+    );
   }
 
   async findState(id: number) {

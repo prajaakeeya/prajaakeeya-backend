@@ -452,30 +452,37 @@ export class NotificationsService {
     content: string;
   }) {
     try {
-      const rows = await this.repo.manager
+      // Single JOIN: resolve the distinct recipient user-ids who have posted in
+      // this chat directly in SQL, filtering blocked/self-deleted users in the
+      // same query (replacing the old query-then-filter two-step). The
+      // aspirant's own user (if any, and not the sender) is OR'd in, subject to
+      // the identical active-user filter the old path applied to it.
+      const qb = this.repo.manager
         .createQueryBuilder()
-        .select("DISTINCT m.user_id", "userId")
-        .from("aspirant_messages", "m")
-        .where("m.aspirant_id = :aspirantId", { aspirantId: args.aspirantId })
-        .andWhere("m.user_id != :senderId", { senderId: args.senderId })
-        .getRawMany();
-
-      const recipients = new Set<number>(rows.map((r) => Number(r.userId)));
-      if (args.aspirantUserId && args.aspirantUserId !== args.senderId) {
-        recipients.add(args.aspirantUserId);
-      }
-      if (!recipients.size) return { created: 0 };
-
-      // Drop blocked / self-deleted users from the final list.
-      const activeRows = await this.repo.manager
-        .createQueryBuilder()
-        .select("u.id", "id")
+        .select("DISTINCT u.id", "userId")
         .from("users", "u")
-        .where("u.id IN (:...ids)", { ids: Array.from(recipients) })
-        .andWhere("u.is_blocked = false")
+        .where("u.is_blocked = false")
         .andWhere("u.is_self_deleted = false")
-        .getRawMany();
-      const finalIds = activeRows.map((r) => Number(r.id));
+        .andWhere("u.id != :senderId", { senderId: args.senderId });
+
+      if (args.aspirantUserId && args.aspirantUserId !== args.senderId) {
+        qb.andWhere(
+          `(u.id = :aspirantUserId OR u.id IN (
+             SELECT m.user_id FROM aspirant_messages m WHERE m.aspirant_id = :aspirantId
+           ))`,
+          { aspirantUserId: args.aspirantUserId, aspirantId: args.aspirantId },
+        );
+      } else {
+        qb.andWhere(
+          `u.id IN (
+             SELECT m.user_id FROM aspirant_messages m WHERE m.aspirant_id = :aspirantId
+           )`,
+          { aspirantId: args.aspirantId },
+        );
+      }
+
+      const rows = await qb.getRawMany();
+      const finalIds = rows.map((r) => Number(r.userId));
       if (!finalIds.length) return { created: 0 };
 
       const senderLabel = args.senderName?.trim() || "Someone";

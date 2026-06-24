@@ -284,8 +284,18 @@ export class AspirantsController {
     description: "Aspirant ID",
     example: 5,
   })
-  bookings(@CurrentUser() user: any, @Param("id") id: string) {
-    return this.aspirantsService.listBookingsForAspirant(Number(id), user);
+  bookings(
+    @CurrentUser() user: any,
+    @Param("id") id: string,
+    @Query("page") page?: string,
+    @Query("limit") limit?: string,
+  ) {
+    return this.aspirantsService.listBookingsForAspirant(
+      Number(id),
+      user,
+      page ? Number(page) : undefined,
+      limit ? Number(limit) : undefined,
+    );
   }
 
   @Post(":id/visits")
@@ -325,8 +335,16 @@ export class AspirantsController {
     description: "Aspirant ID",
     example: 5,
   })
-  getVisits(@Param("id") id: string) {
-    return this.aspirantsService.listVisitsForAspirant(Number(id));
+  getVisits(
+    @Param("id") id: string,
+    @Query("page") page?: string,
+    @Query("limit") limit?: string,
+  ) {
+    return this.aspirantsService.listVisitsForAspirant(
+      Number(id),
+      page ? Number(page) : undefined,
+      limit ? Number(limit) : undefined,
+    );
   }
 
   @Post("visits/:visitId/respond")

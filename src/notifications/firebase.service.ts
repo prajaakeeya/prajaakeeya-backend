@@ -120,9 +120,12 @@ export class FirebaseService implements OnModuleInit {
   }
 
   /** Remove a token (call on logout / when the client reports it stale). */
-  async removeToken(token: string): Promise<void> {
+  async removeToken(userId: number, token: string): Promise<void> {
     if (!token) return;
-    await this.tokenRepo.delete({ token });
+    // Scope deletion to the caller's own token — an FCM token is not a secret
+    // (it leaks via logs/Sentry), so deleting by token alone would let anyone
+    // suppress another user's push notifications.
+    await this.tokenRepo.delete({ userId, token });
   }
 
   /**

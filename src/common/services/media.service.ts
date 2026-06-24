@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
@@ -66,12 +67,21 @@ export class MediaService {
     aspirantId: number,
     documentType: string,
     file: Express.Multer.File,
+    user: { id?: number; role?: string } = {},
   ): Promise<Aspirant> {
     const aspirant = await this.aspirantRepo.findOne({
       where: { id: aspirantId },
     });
     if (!aspirant) {
       throw new NotFoundException("Aspirant not found");
+    }
+    // Ownership: only the aspirant's own user (or an admin) may upload/replace
+    // their documents. Without this, any logged-in user could overwrite another
+    // aspirant's SOP/EPIC/selfie and force-approve them.
+    if (user?.role !== "admin" && aspirant.userId !== user?.id) {
+      throw new ForbiddenException(
+        "You can only upload documents for your own aspirant profile",
+      );
     }
 
     // Snapshot the document-completion state before this upload so we can

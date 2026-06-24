@@ -93,8 +93,9 @@ describe("UsersService — findAllVoters() pagination + shaping", () => {
 
   it("applies skip/take and returns shaped, paginated data", async () => {
     const qb = qbReturning([{ id: 1, name: "Asha", role: "voter", ward: null }], 42);
+    const count = jest.fn(async () => 40);
     const service = makeService({
-      repo: { createQueryBuilder: jest.fn(() => qb), count: jest.fn(async () => 40) },
+      repo: { createQueryBuilder: jest.fn(() => qb), count },
     });
 
     const result = await service.findAllVoters(3, 10);
@@ -102,7 +103,9 @@ describe("UsersService — findAllVoters() pagination + shaping", () => {
     expect(qb.skip).toHaveBeenCalledWith(20); // (3 - 1) * 10
     expect(qb.take).toHaveBeenCalledWith(10);
     expect(result.total).toBe(42);
-    expect(result.totalUsers).toBe(40);
+    // No search filter → totalUsers reuses the paginated total; no extra COUNT(*).
+    expect(result.totalUsers).toBe(42);
+    expect(count).not.toHaveBeenCalled();
     expect(result.page).toBe(3);
     expect(result.limit).toBe(10);
     expect(result.totalPages).toBe(Math.ceil(42 / 10));

@@ -8,7 +8,7 @@ import {
 import { CACHE_MANAGER } from "@nestjs/cache-manager";
 import type { Cache } from "cache-manager";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Repository, DataSource, In } from "typeorm";
+import { Repository, DataSource, EntityManager, In } from "typeorm";
 import { S3Service } from "../common/services/s3.service";
 import { tokenVersionCacheKey } from "../auth/strategies/jwt.strategy";
 import { User } from "./user.entity";
@@ -106,8 +106,9 @@ export class UsersService {
     return newVersion;
   }
 
-  findById(id: number) {
-    return this.repo.findOne({ where: { id } });
+  findById(id: number, manager?: EntityManager) {
+    const repo = manager ? manager.getRepository(User) : this.repo;
+    return repo.findOne({ where: { id } });
   }
 
   /** Bulk-fetch users by id. Used to avoid N+1 lookup loops. */
@@ -134,25 +135,6 @@ export class UsersService {
     return this.repo.findOne({
       where: [{ epicId: epic }, { voterEpic: epic }],
     });
-  }
-
-  async upsertOtp(phone: string, otp: string) {
-    const user = await this.repo.findOne({ where: { phone } });
-    if (!user) {
-      throw new NotFoundException("User not registered");
-    }
-    user.lastOtp = otp;
-    await this.repo.save(user);
-  }
-
-  async validateOtp(phone: string, otp: string) {
-    const user = await this.repo.findOne({ where: { phone } });
-    if (!user || user.lastOtp !== otp) {
-      return null;
-    }
-    user.lastOtp = null;
-    await this.repo.save(user);
-    return user;
   }
 
   async registerVoterFromRoll(payload: {
@@ -226,16 +208,28 @@ export class UsersService {
     return this.repo.save(user);
   }
 
-  async setRole(userId: number, role: "admin" | "voter" | "aspirant") {
-    const user = await this.repo.findOne({ where: { id: userId } });
+  async setRole(
+    userId: number,
+    role: "admin" | "voter" | "aspirant",
+    manager?: EntityManager,
+  ) {
+    const repo = manager ? manager.getRepository(User) : this.repo;
+    const user = await repo.findOne({ where: { id: userId } });
     if (!user) throw new NotFoundException("User not found");
     user.role = role;
-    return this.repo.save(user);
+    return repo.save(user);
   }
 
   async create(payload: Partial<User>) {
     const user = this.repo.create(payload);
     return this.repo.save(user);
+  }
+
+  /** Total registered citizens — voters + aspirants (admins excluded). */
+  async countRegistered(): Promise<number> {
+    return this.repo.count({
+      where: [{ role: "voter" as any }, { role: "aspirant" as any }],
+    });
   }
 
   async findAllVoters(page: number, limit: number, search?: string) {
@@ -256,9 +250,14 @@ export class UsersService {
       .take(limit)
       .getManyAndCount();
 
-    const totalUsers = await this.repo.count({
-      where: [{ role: "voter" as any }, { role: "aspirant" as any }],
-    });
+    // When unfiltered, the paginated getManyAndCount total already equals the
+    // voter+aspirant grand total, so skip a second full COUNT on every page
+    // load. Only a search filter narrows the result enough to need it separately.
+    const totalUsers = search
+      ? await this.repo.count({
+          where: [{ role: "voter" as any }, { role: "aspirant" as any }],
+        })
+      : total;
 
     return {
       totalUsers,
@@ -481,11 +480,24 @@ export class UsersService {
       throw new NotFoundException("User not found");
     }
 
+    // Strip credential material before this entity is serialized to a client
+    // (this method backs GET /users/me and the admin user-detail view).
+    delete (user as any).passwordHash;
+    delete (user as any).passwordSalt;
+
     return user;
   }
 
-  async updateUser(id: number, dto: UpdateUserDto): Promise<User> {
-    const user = await this.repo.findOne({ where: { id } });
+  async updateUser(
+    id: number,
+    dto: UpdateUserDto,
+    manager?: EntityManager,
+  ): Promise<User> {
+    const repo = manager ? manager.getRepository(User) : this.repo;
+    const aspirantRepo = manager
+      ? manager.getRepository(Aspirant)
+      : this.aspirantRepo;
+    const user = await repo.findOne({ where: { id } });
 
     if (!user) {
       throw new NotFoundException("User not found");
@@ -495,7 +507,7 @@ export class UsersService {
     if (dto.name !== undefined) user.name = dto.name;
     if (dto.phone !== undefined) {
       if (dto.phone) {
-        const existing = await this.repo.findOne({
+        const existing = await repo.findOne({
           where: { phone: dto.phone },
         });
         if (existing && existing.id !== id) {
@@ -504,12 +516,12 @@ export class UsersService {
       }
       user.phone = dto.phone;
       // Sync phone to aspirant profile if user is an aspirant
-      const aspirant = await this.aspirantRepo.findOne({
+      const aspirant = await aspirantRepo.findOne({
         where: { userId: id },
       });
       if (aspirant) {
         aspirant.phone = dto.phone;
-        await this.aspirantRepo.save(aspirant);
+        await aspirantRepo.save(aspirant);
       }
     }
     if (dto.relativeName !== undefined) user.relativeName = dto.relativeName;
@@ -531,7 +543,7 @@ export class UsersService {
     if (dto.gramPanchayatConstituencyId !== undefined)
       user.gramPanchayatConstituencyId = dto.gramPanchayatConstituencyId;
 
-    return this.repo.save(user);
+    return repo.save(user);
   }
 
   async updateConstituencies(
@@ -706,43 +718,51 @@ export class UsersService {
     if (!user) throw new NotFoundException("User not found");
     if (!aspirant) throw new NotFoundException("Aspirant not found");
 
-    // SELECT-then-INSERT/UPDATE keeps behavior identical to the original
-    // four track* methods and doesn't depend on a DB unique constraint.
-    const existing = await this.userAspirantInteractionRepo.findOne({
-      where: { userId, aspirantId },
-    });
-    if (existing) {
-      (existing as any)[flagCol] = true;
-      if (type === "phoneCall") (existing as any).phoneCallAt = at ?? new Date();
-      await this.userAspirantInteractionRepo.save(existing);
-    } else {
-      await this.userAspirantInteractionRepo.save({
+    // Atomic upsert — INSERT ... ON CONFLICT (userId, aspirantId) DO UPDATE.
+    // The previous SELECT-then-INSERT raced under concurrent requests for the
+    // same (userId, aspirantId) and violated the unique constraint, throwing
+    // "duplicate key value violates unique constraint". ON CONFLICT only
+    // updates the columns provided here, so the other interaction flags on an
+    // existing row are preserved.
+    await this.userAspirantInteractionRepo.upsert(
+      {
         userId,
         aspirantId,
         [flagCol]: true,
         ...(type === "phoneCall" ? { phoneCallAt: at ?? new Date() } : {}),
-      } as any);
-    }
+      } as any,
+      { conflictPaths: ["userId", "aspirantId"] },
+    );
 
-    const uniqueAspirants = await this.userAspirantInteractionRepo
-      .createQueryBuilder("interaction")
-      .where("interaction.userId = :userId", { userId })
-      .select("COUNT(DISTINCT interaction.aspirantId)", "count")
-      .getRawOne();
-
-    const count = parseInt(uniqueAspirants.count);
+    // requiredCount is 1: once the caller has interacted with any aspirant (any
+    // interaction flag set on the user), voting is already enabled and the exact
+    // DISTINCT count is informational only. Skip the per-click COUNT scan in that
+    // common case — the upsert above already guarantees at least one interaction.
     const requiredCount = 1;
     const aspirantLabel = aspirant.name || `#${aspirantId}`;
-    const message =
-      `${interactionLabel} interaction tracked with aspirant ${aspirantLabel}.` +
-      (count >= requiredCount
-        ? ` You have interacted with ${count} aspirant(s). Voting enabled!`
-        : ` Interact with ${requiredCount - count} more aspirant(s) to enable voting.`);
+    const alreadyEnabled =
+      user.isChat || user.isMeeting || user.isDirectMeet || user.isPhoneCall;
+
+    let message: string;
+    if (alreadyEnabled) {
+      message = `${interactionLabel} interaction tracked with aspirant ${aspirantLabel}. Voting enabled!`;
+    } else {
+      const uniqueAspirants = await this.userAspirantInteractionRepo
+        .createQueryBuilder("interaction")
+        .where("interaction.userId = :userId", { userId })
+        .select("COUNT(DISTINCT interaction.aspirantId)", "count")
+        .getRawOne();
+      const count = parseInt(uniqueAspirants.count);
+      message =
+        `${interactionLabel} interaction tracked with aspirant ${aspirantLabel}.` +
+        (count >= requiredCount
+          ? ` You have interacted with ${count} aspirant(s). Voting enabled!`
+          : ` Interact with ${requiredCount - count} more aspirant(s) to enable voting.`);
+    }
 
     const userPatch: Partial<User> = { lastInteractionMessage: message };
-    if (count >= requiredCount) {
-      (userPatch as any)[flagCol] = true;
-    }
+    // The interaction was just recorded above, so voting is enabled.
+    (userPatch as any)[flagCol] = true;
     await this.repo.update(userId, userPatch);
     Object.assign(user, userPatch);
 
@@ -940,7 +960,6 @@ export class UsersService {
       user.name = "Deleted User";
       user.phone = undefined;
       user.profilePicture = undefined;
-      user.lastOtp = null;
       await this.repo.save(user);
 
       // Clear phone in aspirant table too

@@ -5,7 +5,7 @@ import {
   BadRequestException,
 } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Repository } from "typeorm";
+import { Repository, DataSource } from "typeorm";
 import { Issue } from "./issue.entity";
 import { HandRaise } from "./hand-raise.entity";
 import { ElectionsService } from "../elections/elections.service";
@@ -63,6 +63,7 @@ export class IssuesService {
     private readonly electionsService: ElectionsService,
     private readonly wardsService: WardsService,
     private readonly usersService: UsersService,
+    private readonly dataSource: DataSource,
   ) {}
 
   /** Resolve wardId for municipal_corporation elections */
@@ -231,29 +232,25 @@ export class IssuesService {
 
     const wardId = await this.resolveWardId(electionId, constituencyId);
 
-    // toggle: if user already raised for this election+constituency+category, remove it
-    const existing = await this.handRepo.findOne({
-      where: {
-        electionId,
-        constituencyId,
-        createdById: userId,
-        category: catToUse,
-      },
+    return this.dataSource.transaction(async (manager) => {
+      // Serialize concurrent toggles for the same (user, election, constituency, category);
+      // lock auto-releases at transaction end.
+      await manager.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
+        `handraise:${electionId}:${constituencyId}:${userId}:${catToUse}`,
+      ]);
+      const handRepo = manager.getRepository(HandRaise);
+      const existing = await handRepo.findOne({
+        where: { electionId, constituencyId, createdById: userId, category: catToUse },
+      });
+      if (existing) {
+        await handRepo.delete(existing.id);
+        return { raised: false };
+      }
+      await handRepo.save(
+        handRepo.create({ electionId, constituencyId, wardId, createdById: userId, category: catToUse }),
+      );
+      return { raised: true };
     });
-    if (existing) {
-      await this.handRepo.delete(existing.id);
-      return { raised: false };
-    }
-
-    const hr = this.handRepo.create({
-      electionId,
-      constituencyId,
-      wardId,
-      createdById: userId,
-      category: catToUse,
-    });
-    await this.handRepo.save(hr);
-    return { raised: true };
   }
 
   getCategories() {

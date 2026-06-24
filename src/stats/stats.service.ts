@@ -23,6 +23,14 @@ export class StatsService {
     private readonly electionsService: ElectionsService,
   ) {}
 
+  /** Public — total registered citizens (voters + aspirants; admins excluded). */
+  async countCitizens(): Promise<{ citizens: number }> {
+    const citizens = await this.userRepo.count({
+      where: [{ role: "voter" as any }, { role: "aspirant" as any }],
+    });
+    return { citizens };
+  }
+
   /**
    * Public stats for a single constituency: how many users have set this
    * constituency on their profile, and how many fully-onboarded aspirants

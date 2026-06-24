@@ -68,7 +68,13 @@ export class S3Service {
     folder?: string,
   ): Promise<string> {
     const timestamp = Date.now();
-    const fileName = `${timestamp}-${file.originalname.replace(/\s+/g, "-")}`;
+    // Sanitize the client-supplied name: strip any path components and reduce
+    // to a safe charset so the key can't contain "..", control chars, RTL
+    // overrides or null bytes, and stays parseable by deleteFile().
+    const safeBase = path.basename(file.originalname).replace(/[^a-zA-Z0-9._-]/g, "_");
+    const ext = path.extname(safeBase).slice(0, 10);
+    const stem = safeBase.slice(0, safeBase.length - ext.length).slice(0, 80) || "file";
+    const fileName = `${timestamp}-${stem}${ext}`;
     const key = folder ? `${folder}/${fileName}` : fileName;
 
     if (this.isLocalStorageEnabled()) {

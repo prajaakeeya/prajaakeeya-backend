@@ -35,12 +35,13 @@ export class AdminService {
   ) {}
 
   async dashboard() {
-    const [wards, aspirants, votes] = await Promise.all([
+    const [wards, aspirants, votes, citizens] = await Promise.all([
       this.wardsService.findAll(),
       this.aspirantsService.count(),
       this.votesService.count(),
+      this.usersService.countRegistered(),
     ]);
-    return { totals: { wards: wards.length, aspirants, votes } };
+    return { totals: { wards: wards.length, aspirants, votes, citizens } };
   }
 
   async getAllReports(status?: string, page?: number, limit?: number) {

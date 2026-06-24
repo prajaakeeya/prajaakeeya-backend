@@ -1,12 +1,13 @@
 import {
   Injectable,
   BadRequestException,
+  ConflictException,
   NotFoundException,
   Inject,
   forwardRef,
 } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Repository } from "typeorm";
+import { Repository, QueryFailedError } from "typeorm";
 import { Vote } from "./vote.entity";
 import { VotingWindow } from "./voting-window.entity";
 import { CastVoteDto } from "./dto/cast-vote.dto";
@@ -62,14 +63,27 @@ export class VotesService {
       );
     }
 
-    return this.repo.save(
-      this.repo.create({
-        aspirantId: dto.aspirantId,
-        wardId: aspirant.wardId ?? undefined,
-        userId,
-        votingWindowId: activeWindow.id,
-      }),
-    );
+    try {
+      return await this.repo.save(
+        this.repo.create({
+          aspirantId: dto.aspirantId,
+          wardId: aspirant.wardId ?? undefined,
+          userId,
+          votingWindowId: activeWindow.id,
+        }),
+      );
+    } catch (e) {
+      // The (userId, votingWindowId) unique constraint is the real guard: it
+      // closes the check-then-insert race where two concurrent requests both
+      // pass the "already voted" check above and try to insert. Surface it as a
+      // clean 409 instead of a 500.
+      if (e instanceof QueryFailedError && (e as any).code === "23505") {
+        throw new ConflictException(
+          "You have already voted in this voting window",
+        );
+      }
+      throw e;
+    }
   }
 
   async wardResults(wardId: number) {

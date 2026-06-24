@@ -1,14 +1,10 @@
 import {
   BadRequestException,
   Injectable,
-  OnModuleDestroy,
-  OnModuleInit,
   UnauthorizedException,
 } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import { ConfigService } from "@nestjs/config";
-import { InjectRepository } from "@nestjs/typeorm";
-import { LessThan, Repository } from "typeorm";
 import { UsersService } from "../users/users.service";
 import { VotesService } from "../votes/votes.service";
 import { WardsService } from "../wards/wards.service";
@@ -19,15 +15,11 @@ import { AssemblyService } from "../geography/assembly.service";
 import { GramaPanchayatService } from "../grama-panchayat/grama-panchayat.service";
 import { S3Service } from "../common/services/s3.service";
 import { LoginDto } from "./dto/login.dto";
-import { Otp } from "./otp.entity";
 import { User } from "../users/user.entity";
 import axios from "axios";
 
 @Injectable()
-export class AuthService implements OnModuleInit, OnModuleDestroy {
-  private cleanupTimer?: NodeJS.Timeout;
-  private readonly otpCleanupIntervalMs = 60 * 1000;
-  private readonly otpUsedRetentionMs = 24 * 60 * 60 * 1000;
+export class AuthService {
   constructor(
     private readonly usersService: UsersService,
     private readonly jwtService: JwtService,
@@ -39,7 +31,6 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
     private readonly parliamentaryService: ParliamentaryService,
     private readonly assemblyService: AssemblyService,
     private readonly gramaPanchayatService: GramaPanchayatService,
-    @InjectRepository(Otp) private readonly otpRepo: Repository<Otp>,
     private readonly configService: ConfigService,
   ) {}
 
@@ -326,24 +317,6 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
     return { token: jwt, user: user!, redirectUrl, mockIdentityCookie: mockIdentityCookieToSet };
   }
 
-  onModuleInit() {
-    // Under PM2 cluster mode every worker would otherwise fire its own
-    // cleanup timer, hammering the otps table with redundant DELETE queries.
-    // Worker 0 owns the schedule; other workers stay idle.
-    const instance = process.env.NODE_APP_INSTANCE;
-    if (instance !== undefined && instance !== "0") return;
-
-    this.cleanupTimer = setInterval(() => {
-      this.cleanupOtps().catch(() => undefined);
-    }, this.otpCleanupIntervalMs);
-  }
-
-  onModuleDestroy() {
-    if (this.cleanupTimer) {
-      clearInterval(this.cleanupTimer);
-    }
-  }
-
   async adminLogin(loginDto: LoginDto) {
     if (!loginDto.email) {
       throw new UnauthorizedException("Email required for admin login");
@@ -512,6 +485,10 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
     delete result.municipalCorporationConstituencyId;
     delete result.gramPanchayatConstituencyId;
 
+    // Never serialize credential material to the client.
+    delete result.passwordHash;
+    delete result.passwordSalt;
+
     if (ward) {
       result.wardNumber = ward.number;
       result.state = ward.state ?? result.state;
@@ -586,15 +563,5 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
 
     result.hasVoted = hasVoted;
     return result;
-  }
-
-
-  private async cleanupOtps() {
-    const now = Date.now();
-    const expiredAt = new Date(now);
-    const usedBefore = new Date(now - this.otpUsedRetentionMs);
-
-    await this.otpRepo.delete({ expiresAt: LessThan(expiredAt) });
-    await this.otpRepo.delete({ usedAt: LessThan(usedBefore) });
   }
 }

@@ -16,13 +16,39 @@ import { AspirantsService } from "./aspirants.service";
 // rest are inert stubs. Constructor arg order mirrors the real constructor.
 function buildService(deps: Record<string, any> = {}): any {
   const noop: any = {};
+  const repo = deps.repo ?? noop;
+  const meetingRepo = deps.meetingRepo ?? noop;
+  const meetingResponseRepo = deps.meetingResponseRepo ?? noop;
+  const userRepo = deps.userRepo ?? noop;
+
+  // Mock DataSource: transaction(cb) runs cb with a manager whose
+  // getRepository(Entity) returns the matching mocked repo (keyed by the
+  // entity class name). This lets methods that were wrapped in
+  // dataSource.transaction(...) (create/respondToMeeting) run against the
+  // same mocks the test wired up.
+  const repoByEntityName: Record<string, any> = {
+    Aspirant: repo,
+    AspirantMeeting: meetingRepo,
+    MeetingResponse: meetingResponseRepo,
+    User: userRepo,
+  };
+  const manager: any = {
+    getRepository: (entity: any) => {
+      const name = typeof entity === "function" ? entity.name : String(entity);
+      return repoByEntityName[name] ?? noop;
+    },
+  };
+  const dataSource = deps.dataSource ?? {
+    transaction: async (cb: any) => cb(manager),
+  };
+
   return new AspirantsService(
-    deps.repo ?? noop,
-    deps.meetingRepo ?? noop,
+    repo,
+    meetingRepo,
     deps.bookingRepo ?? noop,
     deps.visitRepo ?? noop,
     deps.visitResponseRepo ?? noop,
-    deps.meetingResponseRepo ?? noop,
+    meetingResponseRepo,
     deps.activityRatingRepo ?? noop,
     deps.interactionRepo ?? noop,
     deps.proposalRepo ?? noop,
@@ -33,6 +59,7 @@ function buildService(deps: Record<string, any> = {}): any {
     deps.electionsService ?? noop,
     deps.notificationsService ?? noop,
     deps.votesService ?? noop,
+    dataSource,
   );
 }
 

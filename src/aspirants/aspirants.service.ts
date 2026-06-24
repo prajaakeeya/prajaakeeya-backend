@@ -7,7 +7,7 @@ import {
   forwardRef,
 } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Repository, In } from "typeorm";
+import { Repository, In, DataSource, EntityManager } from "typeorm";
 import { Aspirant } from "./aspirant.entity";
 import { CreateAspirantDto } from "./dto/create-aspirant.dto";
 import { UsersService } from "../users/users.service";
@@ -66,6 +66,7 @@ export class AspirantsService {
     private readonly notificationsService: NotificationsService,
     @Inject(forwardRef(() => VotesService))
     private readonly votesService: VotesService,
+    private readonly dataSource: DataSource,
   ) {}
 
   /**
@@ -95,10 +96,14 @@ export class AspirantsService {
   /** Aggregated meeting response counts by meeting id, in one query. */
   private async getMeetingResponseCounts(
     meetingIds: number[],
+    manager?: EntityManager,
   ): Promise<Map<number, ResponseCounts>> {
     const map = new Map<number, ResponseCounts>();
     if (!meetingIds.length) return map;
-    const rows = await this.meetingResponseRepo
+    const responseRepo = manager
+      ? manager.getRepository(MeetingResponse)
+      : this.meetingResponseRepo;
+    const rows = await responseRepo
       .createQueryBuilder("r")
       .select("r.meetingId", "meetingId")
       .addSelect(
@@ -356,73 +361,108 @@ export class AspirantsService {
       }
     }
 
-    // Set userId if user exists
+    // Existence check (read) stays BEFORE the transaction so the duplicate
+    // "User already has an aspirant" rejection throws exactly as before, with
+    // no transaction opened.
+    let existing: Aspirant | null = null;
     if (user && user.id) {
-      const existing = await this.findByUserId(user.id);
-      if (existing) {
-        if (existing.isActive) {
-          throw new BadRequestException("User already has an aspirant");
-        }
-        // Reactivate withdrawn aspirant by overwriting with new data
-        await this.repo.update(existing.id, { ...entityData, isActive: true });
-        await this.usersService.setRole(user.id, "aspirant");
-        const userToUpdate = await this.usersService.findById(user.id);
-        if (userToUpdate) {
-          await this.usersService.updateUser(user.id, {
-            phone: dto.phone ?? userToUpdate.phone,
-            age: dto.age ?? userToUpdate.age,
-            gender: dto.gender ?? userToUpdate.gender,
+      existing = await this.findByUserId(user.id);
+      if (existing?.isActive) {
+        throw new BadRequestException("User already has an aspirant");
+      }
+    }
+
+    // From here on everything is a write — wrap atomically so the aspirant
+    // row, the user's role/profile, and the constituency sync commit or roll
+    // back together. All writes are threaded through `manager`.
+    return this.dataSource.transaction(async (manager) => {
+      const aspirantRepo = manager.getRepository(Aspirant);
+
+      // Set userId if user exists
+      if (user && user.id) {
+        if (existing) {
+          // Reactivate withdrawn aspirant by overwriting with new data
+          await aspirantRepo.update(existing.id, {
+            ...entityData,
+            isActive: true,
           });
-        }
-        const updated = await this.repo.findOne({ where: { id: existing.id } });
-        if (updated) {
-          if (dto.electionId && dto.constituencyId) {
-            await this.upsertCandidacy(updated, dto.electionId, dto.constituencyId);
-          } else {
-            await this.syncUserSavedConstituency(updated);
+          await this.usersService.setRole(user.id, "aspirant", manager);
+          const userToUpdate = await this.usersService.findById(
+            user.id,
+            manager,
+          );
+          if (userToUpdate) {
+            await this.usersService.updateUser(
+              user.id,
+              {
+                phone: dto.phone ?? userToUpdate.phone,
+                age: dto.age ?? userToUpdate.age,
+                gender: dto.gender ?? userToUpdate.gender,
+              },
+              manager,
+            );
           }
-          // No new-aspirant notification yet — that fires when documents
-          // complete (sop + selfie uploaded), in MediaService.
+          const updated = await aspirantRepo.findOne({
+            where: { id: existing.id },
+          });
+          if (updated) {
+            if (dto.electionId && dto.constituencyId) {
+              await this.upsertCandidacy(
+                updated,
+                dto.electionId,
+                dto.constituencyId,
+                manager,
+              );
+            } else {
+              await this.syncUserSavedConstituency(updated, manager);
+            }
+            // No new-aspirant notification yet — that fires when documents
+            // complete (sop + selfie uploaded), in MediaService.
+          }
+          return { ...updated, documentStatus: updated!.getDocumentStatus() };
         }
-        return { ...updated, documentStatus: updated!.getDocumentStatus() };
+        entityData.userId = user.id;
       }
-      entityData.userId = user.id;
-    }
 
-    const aspirant = this.repo.create(entityData);
-    await this.repo.save(aspirant);
+      const aspirant = aspirantRepo.create(entityData);
+      await aspirantRepo.save(aspirant);
 
-    if (user && user.id) {
-      await this.usersService.setRole(user.id, "aspirant");
+      if (user && user.id) {
+        await this.usersService.setRole(user.id, "aspirant", manager);
 
-      // Update user profile with aspirant details
-      const userToUpdate = await this.usersService.findById(user.id);
-      if (userToUpdate) {
-        if (dto.phone) userToUpdate.phone = dto.phone;
-        if (dto.age !== undefined) userToUpdate.age = dto.age;
-        if (dto.gender) userToUpdate.gender = dto.gender;
-        await this.usersService.updateUser(user.id, {
-          phone: userToUpdate.phone,
-          age: userToUpdate.age,
-          gender: userToUpdate.gender,
-        });
+        // Update user profile with aspirant details
+        const userToUpdate = await this.usersService.findById(user.id, manager);
+        if (userToUpdate) {
+          if (dto.phone) userToUpdate.phone = dto.phone;
+          if (dto.age !== undefined) userToUpdate.age = dto.age;
+          if (dto.gender) userToUpdate.gender = dto.gender;
+          await this.usersService.updateUser(
+            user.id,
+            {
+              phone: userToUpdate.phone,
+              age: userToUpdate.age,
+              gender: userToUpdate.gender,
+            },
+            manager,
+          );
+        }
       }
-    }
 
-    if (dto.electionId && dto.constituencyId) {
-      await this.upsertCandidacy(aspirant, dto.electionId, dto.constituencyId);
-    } else {
-      await this.syncUserSavedConstituency(aspirant);
-    }
-    // No new-aspirant notification at registration — it fires when the
-    // aspirant first completes their required documents
-    // (hasAllRequiredDocuments → true), dispatched from MediaService.
+      if (dto.electionId && dto.constituencyId) {
+        await this.upsertCandidacy(aspirant, dto.electionId, dto.constituencyId, manager);
+      } else {
+        await this.syncUserSavedConstituency(aspirant, manager);
+      }
+      // No new-aspirant notification at registration — it fires when the
+      // aspirant first completes their required documents
+      // (hasAllRequiredDocuments → true), dispatched from MediaService.
 
-    // Include documentStatus in response
-    return {
-      ...aspirant,
-      documentStatus: aspirant.getDocumentStatus(),
-    };
+      // Include documentStatus in response
+      return {
+        ...aspirant,
+        documentStatus: aspirant.getDocumentStatus(),
+      };
+    });
   }
 
   /**
@@ -448,7 +488,10 @@ export class AspirantsService {
    * /auth/me payload and notification fan-out consistent without the
    * user having to set it manually.
    */
-  private async syncUserSavedConstituency(aspirant: Aspirant) {
+  private async syncUserSavedConstituency(
+    aspirant: Aspirant,
+    manager?: EntityManager,
+  ) {
     if (!aspirant.userId || !aspirant.electionId || !aspirant.constituencyId) {
       return;
     }
@@ -456,6 +499,7 @@ export class AspirantsService {
       aspirant.userId,
       aspirant.electionId,
       aspirant.constituencyId,
+      manager,
     );
   }
 
@@ -471,6 +515,7 @@ export class AspirantsService {
     userId: number,
     electionId: number,
     constituencyId: number,
+    manager?: EntityManager,
   ) {
     try {
       const election = await this.electionsService.findById(electionId);
@@ -491,7 +536,19 @@ export class AspirantsService {
         default:
           return;
       }
-      await this.usersService.updateConstituencies(userId, patch);
+      if (manager) {
+        // Inside a transaction: write through the transaction's manager so
+        // the constituency sync commits/rolls back atomically with the
+        // aspirant + user writes. updateConstituencies (which uses its own
+        // repo) would otherwise run outside this transaction.
+        const userRepo = manager.getRepository(User);
+        const user = await userRepo.findOne({ where: { id: userId } });
+        if (!user) return;
+        Object.assign(user, patch);
+        await userRepo.save(user);
+      } else {
+        await this.usersService.updateConstituencies(userId, patch);
+      }
     } catch {
       /* best-effort */
     }
@@ -508,7 +565,13 @@ export class AspirantsService {
     aspirant: Aspirant,
     electionId: number,
     constituencyId: number,
+    manager?: EntityManager,
   ): Promise<AspirantCandidacy> {
+    const candidacyRepo = manager
+      ? manager.getRepository(AspirantCandidacy)
+      : this.candidacyRepo;
+    const aspirantRepo = manager ? manager.getRepository(Aspirant) : this.repo;
+
     const election = await this.electionsService.findById(electionId);
     let wardId: number | null = null;
     if (election.type === "municipal_corporation") {
@@ -519,21 +582,21 @@ export class AspirantsService {
       wardId = ward.id;
     }
 
-    let candidacy = await this.candidacyRepo.findOne({
+    let candidacy = await candidacyRepo.findOne({
       where: { aspirantId: aspirant.id, electionId },
     });
     if (candidacy) {
       candidacy.constituencyId = constituencyId;
       candidacy.wardId = wardId;
     } else {
-      candidacy = this.candidacyRepo.create({
+      candidacy = candidacyRepo.create({
         aspirantId: aspirant.id,
         electionId,
         constituencyId,
         wardId,
       });
     }
-    await this.candidacyRepo.save(candidacy);
+    await candidacyRepo.save(candidacy);
 
     if (!aspirant.electionId || aspirant.electionId === electionId) {
       aspirant.electionId = electionId;
@@ -541,13 +604,14 @@ export class AspirantsService {
       aspirant.wardId = wardId;
     }
     aspirant.candidacyStatus = "declared";
-    await this.repo.save(aspirant);
+    await aspirantRepo.save(aspirant);
 
     if (aspirant.userId) {
       await this.syncUserConstituencyForElection(
         aspirant.userId,
         electionId,
         constituencyId,
+        manager,
       );
     }
 
@@ -620,7 +684,7 @@ export class AspirantsService {
   ) {
     if (!aspirantIds.length) return;
     const aspirants = await this.repo.find({
-      where: aspirantIds.map((id) => ({ id })),
+      where: { id: In(aspirantIds) },
     });
     for (const aspirant of aspirants) {
       const meeting = meetingsByAspirant.get(aspirant.id);
@@ -675,11 +739,17 @@ export class AspirantsService {
   async listBookingsForAspirant(
     aspirantId: number,
     user: { id?: number; role?: string },
+    page?: number,
+    limit?: number,
   ) {
     await this.assertOwnsAspirant(aspirantId, user);
+    const p = Math.max(1, Number(page) || 1);
+    const l = Math.min(100, Math.max(1, Number(limit) || 100));
     const bookings = await this.bookingRepo.find({
       where: { aspirantId },
       order: { createdAt: "DESC" },
+      skip: (p - 1) * l,
+      take: l,
     });
     if (!bookings.length) return [];
 
@@ -733,10 +803,18 @@ export class AspirantsService {
     return saved;
   }
 
-  async listVisitsForAspirant(aspirantId: number) {
+  async listVisitsForAspirant(
+    aspirantId: number,
+    page?: number,
+    limit?: number,
+  ) {
+    const p = Math.max(1, Number(page) || 1);
+    const l = Math.min(100, Math.max(1, Number(limit) || 100));
     const visits = await this.visitRepo.find({
       where: { aspirantId },
       order: { startTime: "DESC" },
+      skip: (p - 1) * l,
+      take: l,
     });
     const counts = await this.getVisitResponseCounts(visits.map((v) => v.id));
     return visits.map((v) => ({
@@ -774,34 +852,43 @@ export class AspirantsService {
     voterId: number,
     attending: boolean,
   ) {
-    const meeting = await this.meetingRepo.findOne({
-      where: { id: meetingId },
-    });
-    if (!meeting) throw new NotFoundException("Meeting not found");
+    return this.dataSource.transaction(async (manager) => {
+      const meetingRepo = manager.getRepository(AspirantMeeting);
+      const meetingResponseRepo = manager.getRepository(MeetingResponse);
 
-    let response = await this.meetingResponseRepo.findOne({
-      where: { meetingId, voterId },
-    });
-    if (response) {
-      response.attending = attending;
-    } else {
-      response = this.meetingResponseRepo.create({
-        meetingId,
-        voterId,
-        attending,
+      // Pessimistically lock the parent meeting row so concurrent responders
+      // for the same meeting are serialized — this closes the find-then-insert
+      // race that could otherwise insert duplicate response rows.
+      const meeting = await meetingRepo.findOne({
+        where: { id: meetingId },
+        lock: { mode: "pessimistic_write" },
       });
-    }
-    await this.meetingResponseRepo.save(response);
+      if (!meeting) throw new NotFoundException("Meeting not found");
 
-    const counts = await this.getMeetingResponseCounts([meetingId]);
-    const c = counts.get(meetingId);
-    return {
-      id: meeting.id,
-      meetingId,
-      attending,
-      attendingCount: c?.attending ?? 0,
-      notAttendingCount: c?.notAttending ?? 0,
-    };
+      let response = await meetingResponseRepo.findOne({
+        where: { meetingId, voterId },
+      });
+      if (response) {
+        response.attending = attending;
+      } else {
+        response = meetingResponseRepo.create({
+          meetingId,
+          voterId,
+          attending,
+        });
+      }
+      await meetingResponseRepo.save(response);
+
+      const counts = await this.getMeetingResponseCounts([meetingId], manager);
+      const c = counts.get(meetingId);
+      return {
+        id: meeting.id,
+        meetingId,
+        attending,
+        attendingCount: c?.attending ?? 0,
+        notAttendingCount: c?.notAttending ?? 0,
+      };
+    });
   }
 
   async getVisitResponses(visitId: number) {
@@ -832,7 +919,6 @@ export class AspirantsService {
       .createQueryBuilder("aspirant")
       .leftJoinAndSelect("aspirant.ward", "ward")
       .leftJoinAndSelect("aspirant.user", "user")
-      .leftJoinAndSelect("aspirant.meetings", "meetings")
       .where("ward.number = :wardNumber", { wardNumber })
       .andWhere("aspirant.isActive = :isActive", { isActive: true })
       .orderBy("aspirant.createdAt", "DESC")
@@ -841,6 +927,23 @@ export class AspirantsService {
     if (!aspirants.length) return [];
 
     const ids = aspirants.map((a) => a.id);
+
+    // Load meetings separately (instead of a leftJoinAndSelect that multiplies
+    // aspirant rows by their meetings) and group them in JS, mirroring the
+    // allVisits pattern below.
+    const meetings = await this.meetingRepo.find({
+      where: { aspirantId: In(ids) },
+    });
+    const meetingsByAspirant = new Map<number, AspirantMeeting[]>();
+    for (const m of meetings) {
+      (
+        meetingsByAspirant.get(m.aspirantId) ??
+        meetingsByAspirant.set(m.aspirantId, []).get(m.aspirantId)!
+      ).push(m);
+    }
+    for (const a of aspirants) {
+      (a as any).meetings = meetingsByAspirant.get(a.id) ?? [];
+    }
     const meetingIds = aspirants.flatMap(
       (a) => (a.meetings ?? []).map((m: any) => m.id),
     );
@@ -936,7 +1039,6 @@ export class AspirantsService {
       )
       .leftJoinAndSelect("aspirant.ward", "ward")
       .leftJoinAndSelect("aspirant.user", "user")
-      .leftJoinAndSelect("aspirant.meetings", "meetings")
       .where("candidacy.electionId = :electionId", { electionId })
       .andWhere("candidacy.constituencyId = :constituencyId", { constituencyId })
       .andWhere("aspirant.isActive = :isActive", { isActive: true })
@@ -949,6 +1051,23 @@ export class AspirantsService {
       return [this.getDemoAspirant(electionId, constituencyId)];
 
     const ids = aspirants.map((a) => a.id);
+
+    // Load meetings separately (instead of a leftJoinAndSelect that multiplies
+    // aspirant rows by their meetings) and group them in JS, mirroring the
+    // allVisits pattern below.
+    const meetings = await this.meetingRepo.find({
+      where: { aspirantId: In(ids) },
+    });
+    const meetingsByAspirant = new Map<number, AspirantMeeting[]>();
+    for (const m of meetings) {
+      (
+        meetingsByAspirant.get(m.aspirantId) ??
+        meetingsByAspirant.set(m.aspirantId, []).get(m.aspirantId)!
+      ).push(m);
+    }
+    for (const a of aspirants) {
+      (a as any).meetings = meetingsByAspirant.get(a.id) ?? [];
+    }
     const meetingIds = aspirants.flatMap(
       (a) => (a.meetings ?? []).map((m: any) => m.id),
     );
@@ -1309,7 +1428,7 @@ export class AspirantsService {
 
     // Return updated aspirants with their meetings
     return this.repo.find({
-      where: aspirantIds.map((id) => ({ id })),
+      where: { id: In(aspirantIds) },
       relations: ["ward", "meetings"],
     });
   }

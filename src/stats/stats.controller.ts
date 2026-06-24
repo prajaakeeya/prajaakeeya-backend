@@ -1,4 +1,5 @@
-import { Controller, Get, Query } from "@nestjs/common";
+import { Controller, Get, Query, UseInterceptors } from "@nestjs/common";
+import { CacheInterceptor, CacheTTL } from "@nestjs/cache-manager";
 import {
   ApiOperation,
   ApiQuery,
@@ -13,8 +14,23 @@ import { StatsService } from "./stats.service";
 export class StatsController {
   constructor(private readonly statsService: StatsService) {}
 
+  @Get("citizens")
+  @Public()
+  @UseInterceptors(CacheInterceptor)
+  @CacheTTL(60_000)
+  @ApiOperation({
+    summary:
+      "Public — total number of registered citizens (voters + aspirants)",
+  })
+  @ApiResponse({ status: 200, description: "Citizen count returned" })
+  countCitizens() {
+    return this.statsService.countCitizens();
+  }
+
   @Get("constituency")
   @Public()
+  @UseInterceptors(CacheInterceptor)
+  @CacheTTL(60_000)
   @ApiOperation({
     summary:
       "Public — total voters and aspirants registered to an election constituency",

@@ -1,7 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { Cron, CronExpression } from "@nestjs/schedule";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Repository } from "typeorm";
+import { In, Repository } from "typeorm";
 
 import { AspirantMeeting } from "../aspirants/aspirant-meeting.entity";
 import { AspirantVisit } from "../aspirants/aspirant-visit.entity";
@@ -59,14 +59,61 @@ export class ReminderSchedulerService {
     }
 
     const now = Date.now();
-    try {
-      await this.sendMeetingBeforeReminders(now);
-      await this.sendMeetingStartNotifications(now);
-      await this.sendVisitBeforeReminders(now);
-      await this.sendVisitStartNotifications(now);
-    } catch (err) {
-      this.logger.error(`reminder tick failed: ${(err as Error).message}`);
+    const results = await Promise.allSettled([
+      this.sendMeetingBeforeReminders(now),
+      this.sendMeetingStartNotifications(now),
+      this.sendVisitBeforeReminders(now),
+      this.sendVisitStartNotifications(now),
+    ]);
+    for (const r of results) {
+      if (r.status === "rejected") {
+        this.logger.error(
+          `reminder tick failed: ${(r.reason as Error)?.message ?? r.reason}`,
+        );
+      }
     }
+  }
+
+  /**
+   * Batch-load the aspirant context for a set of due rows: one query for all
+   * aspirants, then resolve each aspirant's election context. Returns a Map
+   * keyed by aspirantId of the same shape resolveAspirantContext produced.
+   */
+  private async resolveAspirantContextsBulk(
+    aspirantIds: number[],
+  ): Promise<Map<number, { aspirant: Aspirant; context: ConstituencyContext }>> {
+    const out = new Map<
+      number,
+      { aspirant: Aspirant; context: ConstituencyContext }
+    >();
+    if (!aspirantIds.length) return out;
+
+    const aspirants = await this.aspirantRepo.find({
+      where: { id: In(aspirantIds) },
+    });
+
+    await Promise.allSettled(
+      aspirants.map(async (aspirant) => {
+        if (!aspirant.electionId || !aspirant.constituencyId) return;
+        try {
+          const election = await this.electionsService.findById(
+            aspirant.electionId,
+          );
+          if (!election) return;
+          out.set(aspirant.id, {
+            aspirant,
+            context: {
+              electionType: election.type as ElectionType,
+              constituencyName: null,
+            },
+          });
+        } catch {
+          /* skip aspirants whose election can't be resolved */
+        }
+      }),
+    );
+
+    return out;
   }
 
   // ── Meetings ────────────────────────────────────────────────────────────
@@ -81,18 +128,29 @@ export class ReminderSchedulerService {
       .andWhere("m.startTime <= :windowEnd", { windowEnd })
       .getMany();
 
-    for (const meeting of meetings) {
-      const resolved = await this.resolveAspirantContext(meeting.aspirantId);
-      if (resolved) {
-        await this.notifications.notifyMeetingReminder(
-          resolved.aspirant,
-          meeting,
-          resolved.context,
-        );
-      }
-      meeting.reminderBeforeSent = true;
-      await this.meetingRepo.save(meeting);
-    }
+    if (!meetings.length) return;
+
+    const ids = [...new Set(meetings.map((m) => m.aspirantId))];
+    const contexts = await this.resolveAspirantContextsBulk(ids);
+
+    await Promise.allSettled(
+      meetings.map(async (meeting) => {
+        const resolved = contexts.get(meeting.aspirantId);
+        if (resolved) {
+          await this.notifications.notifyMeetingReminder(
+            resolved.aspirant,
+            meeting,
+            resolved.context,
+          );
+        }
+      }),
+    );
+
+    // One bulk update for the "before" flag.
+    await this.meetingRepo.update(
+      { id: In(meetings.map((m) => m.id)) },
+      { reminderBeforeSent: true },
+    );
   }
 
   private async sendMeetingStartNotifications(now: number): Promise<void> {
@@ -105,18 +163,29 @@ export class ReminderSchedulerService {
       .andWhere("m.startTime > :graceStart", { graceStart })
       .getMany();
 
-    for (const meeting of meetings) {
-      const resolved = await this.resolveAspirantContext(meeting.aspirantId);
-      if (resolved) {
-        await this.notifications.notifyMeetingStart(
-          resolved.aspirant,
-          meeting,
-          resolved.context,
-        );
-      }
-      meeting.reminderStartSent = true;
-      await this.meetingRepo.save(meeting);
-    }
+    if (!meetings.length) return;
+
+    const ids = [...new Set(meetings.map((m) => m.aspirantId))];
+    const contexts = await this.resolveAspirantContextsBulk(ids);
+
+    await Promise.allSettled(
+      meetings.map(async (meeting) => {
+        const resolved = contexts.get(meeting.aspirantId);
+        if (resolved) {
+          await this.notifications.notifyMeetingStart(
+            resolved.aspirant,
+            meeting,
+            resolved.context,
+          );
+        }
+      }),
+    );
+
+    // One bulk update for the "start" flag.
+    await this.meetingRepo.update(
+      { id: In(meetings.map((m) => m.id)) },
+      { reminderStartSent: true },
+    );
   }
 
   // ── Visits ──────────────────────────────────────────────────────────────
@@ -131,18 +200,29 @@ export class ReminderSchedulerService {
       .andWhere("v.startTime <= :windowEnd", { windowEnd })
       .getMany();
 
-    for (const visit of visits) {
-      const resolved = await this.resolveAspirantContext(visit.aspirantId);
-      if (resolved) {
-        await this.notifications.notifyVisitReminder(
-          resolved.aspirant,
-          visit,
-          resolved.context,
-        );
-      }
-      visit.reminderBeforeSent = true;
-      await this.visitRepo.save(visit);
-    }
+    if (!visits.length) return;
+
+    const ids = [...new Set(visits.map((v) => v.aspirantId))];
+    const contexts = await this.resolveAspirantContextsBulk(ids);
+
+    await Promise.allSettled(
+      visits.map(async (visit) => {
+        const resolved = contexts.get(visit.aspirantId);
+        if (resolved) {
+          await this.notifications.notifyVisitReminder(
+            resolved.aspirant,
+            visit,
+            resolved.context,
+          );
+        }
+      }),
+    );
+
+    // One bulk update for the "before" flag.
+    await this.visitRepo.update(
+      { id: In(visits.map((v) => v.id)) },
+      { reminderBeforeSent: true },
+    );
   }
 
   private async sendVisitStartNotifications(now: number): Promise<void> {
@@ -155,44 +235,29 @@ export class ReminderSchedulerService {
       .andWhere("v.startTime > :graceStart", { graceStart })
       .getMany();
 
-    for (const visit of visits) {
-      const resolved = await this.resolveAspirantContext(visit.aspirantId);
-      if (resolved) {
-        await this.notifications.notifyVisitStart(
-          resolved.aspirant,
-          visit,
-          resolved.context,
-        );
-      }
-      visit.reminderStartSent = true;
-      await this.visitRepo.save(visit);
-    }
+    if (!visits.length) return;
+
+    const ids = [...new Set(visits.map((v) => v.aspirantId))];
+    const contexts = await this.resolveAspirantContextsBulk(ids);
+
+    await Promise.allSettled(
+      visits.map(async (visit) => {
+        const resolved = contexts.get(visit.aspirantId);
+        if (resolved) {
+          await this.notifications.notifyVisitStart(
+            resolved.aspirant,
+            visit,
+            resolved.context,
+          );
+        }
+      }),
+    );
+
+    // One bulk update for the "start" flag.
+    await this.visitRepo.update(
+      { id: In(visits.map((v) => v.id)) },
+      { reminderStartSent: true },
+    );
   }
 
-  // ── Helpers ─────────────────────────────────────────────────────────────
-
-  /** Load the aspirant and resolve its election type for recipient lookup. */
-  private async resolveAspirantContext(
-    aspirantId: number,
-  ): Promise<{ aspirant: Aspirant; context: ConstituencyContext } | null> {
-    const aspirant = await this.aspirantRepo.findOne({
-      where: { id: aspirantId },
-    });
-    if (!aspirant || !aspirant.electionId || !aspirant.constituencyId) {
-      return null;
-    }
-    try {
-      const election = await this.electionsService.findById(aspirant.electionId);
-      if (!election) return null;
-      return {
-        aspirant,
-        context: {
-          electionType: election.type as ElectionType,
-          constituencyName: null,
-        },
-      };
-    } catch {
-      return null;
-    }
-  }
 }

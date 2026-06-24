@@ -30,7 +30,6 @@ import { Ward } from "./wards/ward.entity";
 import { Aspirant } from "./aspirants/aspirant.entity";
 import { Vote } from "./votes/vote.entity";
 import { VotingWindow } from "./votes/voting-window.entity";
-import { Otp } from "./auth/otp.entity";
 import { Message } from "./forum/message.entity";
 import { State } from "./geography/state.entity";
 import { Parliamentary } from "./geography/parliamentary.entity";
@@ -173,7 +172,6 @@ function resolveRedisUrl(): string | undefined {
         Aspirant,
         Vote,
         VotingWindow,
-        Otp,
         Message,
         State,
         Parliamentary,

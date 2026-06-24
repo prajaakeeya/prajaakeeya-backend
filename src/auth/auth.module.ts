@@ -12,15 +12,11 @@ import { GramaPanchayatModule } from "../grama-panchayat/grama-panchayat.module"
 import { AuthService } from "./auth.service";
 import { AuthController } from "./auth.controller";
 import { JwtStrategy } from "./strategies/jwt.strategy";
-import { TypeOrmModule } from "@nestjs/typeorm";
-import { Otp } from "./otp.entity";
 import { S3Service } from "../common/services/s3.service";
-import { MessageCentralService } from "../common/services/message-central.service";
 
 @Module({
   imports: [
     ConfigModule,
-    TypeOrmModule.forFeature([Otp]),
     UsersModule,
     WardsModule,
     AspirantsModule,
@@ -46,7 +42,6 @@ import { MessageCentralService } from "../common/services/message-central.servic
     AuthService,
     JwtStrategy,
     S3Service,
-    MessageCentralService,
   ],
   exports: [JwtStrategy],
 })

@@ -33,9 +33,6 @@ export class User extends BaseEntity {
   @ManyToOne(() => Ward, (ward) => ward.users, { nullable: true })
   ward?: Ward;
 
-  @Column({ type: "varchar", length: 12, nullable: true, default: null })
-  lastOtp!: string | null;
-
   @Column({ name: "is_blocked", type: "boolean", default: false })
   isBlocked!: boolean;
 

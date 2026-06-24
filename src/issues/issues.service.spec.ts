@@ -14,12 +14,24 @@ import { IssuesService } from "./issues.service";
  */
 function buildService(deps: Record<string, any> = {}): any {
   const noop: any = {};
+  const handRepo = deps.handRepo ?? noop;
+  // Mock DataSource: transaction(cb) runs cb with a manager whose
+  // getRepository(HandRaise) returns the wired-up hand repo and query() is a
+  // no-op (advisory-lock SELECT). Lets createHandRaise run against the mocks.
+  const manager: any = {
+    getRepository: () => handRepo,
+    query: jest.fn(async () => []),
+  };
+  const dataSource = deps.dataSource ?? {
+    transaction: async (cb: any) => cb(manager),
+  };
   return new IssuesService(
     deps.repo ?? noop,
-    deps.handRepo ?? noop,
+    handRepo,
     deps.electionsService ?? { findById: jest.fn(async () => ({ id: 1, type: "state_assembly", name: "AC" })) },
     deps.wardsService ?? noop,
     deps.usersService ?? noop,
+    dataSource,
   );
 }
 
