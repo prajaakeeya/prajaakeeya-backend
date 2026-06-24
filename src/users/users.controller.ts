@@ -22,6 +22,7 @@ import {
   ApiBody,
   ApiQuery,
 } from "@nestjs/swagger";
+import { Throttle } from "@nestjs/throttler";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { MAX_UPLOAD_BYTES } from "../common/upload.constants";
 import { UsersService } from "./users.service";
@@ -30,6 +31,11 @@ import { UpdateUserDto } from "./dto/update-user.dto";
 import { UpdateConstituenciesDto } from "./dto/update-constituencies.dto";
 import { TrackInteractionDto } from "./dto/track-interaction.dto";
 import { JwtAuthGuard } from "../common/guards/jwt-auth.guard";
+
+// Interaction-tracking endpoints gate voting eligibility — apply a strict
+// per-user throttle so they cannot be spammed programmatically to unlock
+// voting without genuine interaction.
+const INTERACTION_THROTTLE = { default: { ttl: 60_000, limit: 20 } };
 
 @ApiTags("Users")
 @Controller("users")
@@ -156,6 +162,7 @@ export class UsersController {
 
   @Post("track/chat")
   @UseGuards(JwtAuthGuard)
+  @Throttle(INTERACTION_THROTTLE)
   @ApiBearerAuth()
   @ApiOperation({ summary: "Track chat interaction" })
   @ApiResponse({
@@ -171,6 +178,7 @@ export class UsersController {
 
   @Post("track/meeting")
   @UseGuards(JwtAuthGuard)
+  @Throttle(INTERACTION_THROTTLE)
   @ApiBearerAuth()
   @ApiOperation({ summary: "Track meeting booking" })
   @ApiResponse({
@@ -186,6 +194,7 @@ export class UsersController {
 
   @Post("track/direct-meet")
   @UseGuards(JwtAuthGuard)
+  @Throttle(INTERACTION_THROTTLE)
   @ApiBearerAuth()
   @ApiOperation({ summary: "Track direct meet request" })
   @ApiResponse({
@@ -201,6 +210,7 @@ export class UsersController {
 
   @Post("track/phone-call")
   @UseGuards(JwtAuthGuard)
+  @Throttle(INTERACTION_THROTTLE)
   @ApiBearerAuth()
   @ApiOperation({
     summary: "Track phone/WhatsApp ('contact') button press",
@@ -274,7 +284,7 @@ export class UsersController {
     if (dto.name !== undefined) allowed.name = dto.name;
     if (dto.phone !== undefined) allowed.phone = dto.phone;
     if (dto.gender !== undefined) allowed.gender = dto.gender;
-    if ((dto as any).age !== undefined) allowed.age = (dto as any).age;
+    if (dto.age !== undefined) allowed.age = dto.age;
     if (dto.lokSabhaConstituencyId !== undefined)
       allowed.lokSabhaConstituencyId = dto.lokSabhaConstituencyId;
     if (dto.stateAssemblyConstituencyId !== undefined)
