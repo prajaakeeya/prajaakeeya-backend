@@ -130,6 +130,13 @@ export class ReminderSchedulerService {
 
     if (!meetings.length) return;
 
+    // Mark flags BEFORE sending to prevent duplicate notifications if the
+    // process restarts between send and update (TOCTOU race).
+    await this.meetingRepo.update(
+      { id: In(meetings.map((m) => m.id)) },
+      { reminderBeforeSent: true },
+    );
+
     const ids = [...new Set(meetings.map((m) => m.aspirantId))];
     const contexts = await this.resolveAspirantContextsBulk(ids);
 
@@ -145,12 +152,6 @@ export class ReminderSchedulerService {
         }
       }),
     );
-
-    // One bulk update for the "before" flag.
-    await this.meetingRepo.update(
-      { id: In(meetings.map((m) => m.id)) },
-      { reminderBeforeSent: true },
-    );
   }
 
   private async sendMeetingStartNotifications(now: number): Promise<void> {
@@ -164,6 +165,12 @@ export class ReminderSchedulerService {
       .getMany();
 
     if (!meetings.length) return;
+
+    // Mark flags BEFORE sending to prevent duplicate notifications on restart.
+    await this.meetingRepo.update(
+      { id: In(meetings.map((m) => m.id)) },
+      { reminderStartSent: true },
+    );
 
     const ids = [...new Set(meetings.map((m) => m.aspirantId))];
     const contexts = await this.resolveAspirantContextsBulk(ids);
@@ -179,12 +186,6 @@ export class ReminderSchedulerService {
           );
         }
       }),
-    );
-
-    // One bulk update for the "start" flag.
-    await this.meetingRepo.update(
-      { id: In(meetings.map((m) => m.id)) },
-      { reminderStartSent: true },
     );
   }
 
@@ -202,6 +203,12 @@ export class ReminderSchedulerService {
 
     if (!visits.length) return;
 
+    // Mark flags BEFORE sending to prevent duplicate notifications on restart.
+    await this.visitRepo.update(
+      { id: In(visits.map((v) => v.id)) },
+      { reminderBeforeSent: true },
+    );
+
     const ids = [...new Set(visits.map((v) => v.aspirantId))];
     const contexts = await this.resolveAspirantContextsBulk(ids);
 
@@ -217,12 +224,6 @@ export class ReminderSchedulerService {
         }
       }),
     );
-
-    // One bulk update for the "before" flag.
-    await this.visitRepo.update(
-      { id: In(visits.map((v) => v.id)) },
-      { reminderBeforeSent: true },
-    );
   }
 
   private async sendVisitStartNotifications(now: number): Promise<void> {
@@ -236,6 +237,12 @@ export class ReminderSchedulerService {
       .getMany();
 
     if (!visits.length) return;
+
+    // Mark flags BEFORE sending to prevent duplicate notifications on restart.
+    await this.visitRepo.update(
+      { id: In(visits.map((v) => v.id)) },
+      { reminderStartSent: true },
+    );
 
     const ids = [...new Set(visits.map((v) => v.aspirantId))];
     const contexts = await this.resolveAspirantContextsBulk(ids);
@@ -251,12 +258,6 @@ export class ReminderSchedulerService {
           );
         }
       }),
-    );
-
-    // One bulk update for the "start" flag.
-    await this.visitRepo.update(
-      { id: In(visits.map((v) => v.id)) },
-      { reminderStartSent: true },
     );
   }
 
