@@ -17,7 +17,10 @@ describe("ChatEventsService", () => {
     s9.unsubscribe();
 
     expect(room7).toHaveLength(2);
-    expect(room7.map((e) => e.type)).toEqual(["message.created", "message.deleted"]);
+    expect(room7.map((e) => e.type)).toEqual([
+      "message.created",
+      "message.deleted",
+    ]);
     expect(room9).toHaveLength(1);
     expect(room9[0].payload).toEqual({ id: 2 });
   });

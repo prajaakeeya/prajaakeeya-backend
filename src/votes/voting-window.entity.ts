@@ -1,4 +1,10 @@
-import { Column, Entity, ManyToOne, JoinColumn } from "typeorm";
+import {
+  Column,
+  Entity,
+  ManyToOne,
+  JoinColumn,
+  ValueTransformer,
+} from "typeorm";
 import { BaseEntity, dateToEpoch } from "../common/base.entity";
 import { Election } from "../elections/election.entity";
 
@@ -7,16 +13,16 @@ export class VotingWindow extends BaseEntity {
   @Column({
     name: "start_time",
     type: "timestamp",
-    transformer: dateToEpoch as any,
+    transformer: dateToEpoch as ValueTransformer,
   })
-  startTime!: any;
+  startTime!: number | Date;
 
   @Column({
     name: "end_time",
     type: "timestamp",
-    transformer: dateToEpoch as any,
+    transformer: dateToEpoch as ValueTransformer,
   })
-  endTime!: any;
+  endTime!: number | Date;
 
   @Column({ type: "boolean", default: true })
   isActive!: boolean;

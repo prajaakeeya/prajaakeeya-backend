@@ -145,10 +145,10 @@ export class IssuesService {
       .groupBy("h.category");
 
     if (userId !== undefined) {
-      qb.addSelect(
-        'BOOL_OR(h."createdById" = :uid)',
-        "raised",
-      ).setParameter("uid", userId);
+      qb.addSelect('BOOL_OR(h."createdById" = :uid)', "raised").setParameter(
+        "uid",
+        userId,
+      );
     }
 
     const rows: Array<{
@@ -157,10 +157,7 @@ export class IssuesService {
       raised?: boolean;
     }> = await qb.getRawMany();
 
-    const dbMap = new Map<
-      string,
-      { count: number; isRaised?: boolean }
-    >();
+    const dbMap = new Map<string, { count: number; isRaised?: boolean }>();
     for (const r of rows) {
       dbMap.set(r.category, {
         count: Number(r.cnt),
@@ -235,19 +232,31 @@ export class IssuesService {
     return this.dataSource.transaction(async (manager) => {
       // Serialize concurrent toggles for the same (user, election, constituency, category);
       // lock auto-releases at transaction end.
-      await manager.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
-        `handraise:${electionId}:${constituencyId}:${userId}:${catToUse}`,
-      ]);
+      await manager.query(
+        "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+        [`handraise:${electionId}:${constituencyId}:${userId}:${catToUse}`],
+      );
       const handRepo = manager.getRepository(HandRaise);
       const existing = await handRepo.findOne({
-        where: { electionId, constituencyId, createdById: userId, category: catToUse },
+        where: {
+          electionId,
+          constituencyId,
+          createdById: userId,
+          category: catToUse,
+        },
       });
       if (existing) {
         await handRepo.delete(existing.id);
         return { raised: false };
       }
       await handRepo.save(
-        handRepo.create({ electionId, constituencyId, wardId, createdById: userId, category: catToUse }),
+        handRepo.create({
+          electionId,
+          constituencyId,
+          wardId,
+          createdById: userId,
+          category: catToUse,
+        }),
       );
       return { raised: true };
     });
@@ -275,7 +284,7 @@ export class IssuesService {
     const issue = await this.getIssue(electionId, constituencyId, id);
     const user = await this.usersService.findById(userId);
     const isCreator = issue.createdById === userId;
-    const isAdmin = user && (user as any).role === "admin";
+    const isAdmin = user && user.role === "admin";
     if (!isCreator && !isAdmin)
       throw new ForbiddenException("Not authorized to update this issue");
 
@@ -295,7 +304,7 @@ export class IssuesService {
     const issue = await this.getIssue(electionId, constituencyId, id);
     const user = await this.usersService.findById(userId);
     const isCreator = issue.createdById === userId;
-    const isAdmin = user && (user as any).role === "admin";
+    const isAdmin = user && user.role === "admin";
     if (!isCreator && !isAdmin)
       throw new ForbiddenException("Not authorized to delete this issue");
 

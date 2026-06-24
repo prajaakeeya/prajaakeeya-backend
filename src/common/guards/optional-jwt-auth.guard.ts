@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { AuthGuard } from "@nestjs/passport";
+import { AuthUser } from "../decorators/current-user.decorator";
 
 /**
  * Like {@link JwtAuthGuard} but NEVER blocks the request. When a valid Bearer
@@ -12,7 +13,10 @@ import { AuthGuard } from "@nestjs/passport";
 export class OptionalJwtAuthGuard extends AuthGuard("jwt") {
   // Overriding handleRequest so a missing/invalid token resolves to `undefined`
   // instead of throwing — the route still activates.
-  handleRequest(_err: any, user: any) {
+  handleRequest<TUser = AuthUser>(
+    _err: Error | null,
+    user: TUser | false | undefined,
+  ): TUser | undefined {
     return user || undefined;
   }
 }

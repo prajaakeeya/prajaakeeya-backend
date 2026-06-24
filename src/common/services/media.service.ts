@@ -11,7 +11,8 @@ import { Repository } from "typeorm";
 import { S3Service } from "./s3.service";
 import { User } from "../../users/user.entity";
 import { Aspirant } from "../../aspirants/aspirant.entity";
-import { AdminDocument } from "../../admin/admin-document.entity";
+import { AdminDocument, DocumentType } from "../../admin/admin-document.entity";
+import { AuthUser } from "../decorators/current-user.decorator";
 import { UserSignedDocument } from "../../users/user-signed-document.entity";
 import { VerifyDocumentDto } from "../dto/media-upload.dto";
 import { AspirantsService } from "../../aspirants/aspirants.service";
@@ -58,6 +59,9 @@ export class MediaService {
       throw new BadRequestException("No profile picture to delete");
 
     await this.s3Service.deleteFile(user.profilePicture);
+    // profilePicture is typed `string | undefined` on the entity but we must
+    // persist a SQL NULL (not leave it unchanged) — keep the explicit null.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     user.profilePicture = null as any;
     await this.userRepo.save(user);
     return { message: "Profile picture deleted successfully" };
@@ -67,7 +71,7 @@ export class MediaService {
     aspirantId: number,
     documentType: string,
     file: Express.Multer.File,
-    user: { id?: number; role?: string } = {},
+    user: Partial<AuthUser> = {},
   ): Promise<Aspirant> {
     const aspirant = await this.aspirantRepo.findOne({
       where: { id: aspirantId },
@@ -100,54 +104,6 @@ export class MediaService {
         if (aspirant.sopUrl) await this.s3Service.deleteFile(aspirant.sopUrl);
         aspirant.sopUrl = url;
         aspirant.sopStatus = "pending";
-        break;
-      case "sop_kannada":
-        if (aspirant.sopKannadaUrl)
-          await this.s3Service.deleteFile(aspirant.sopKannadaUrl);
-        aspirant.sopKannadaUrl = url;
-        aspirant.sopKannadaStatus = "pending";
-        break;
-      case "agreement":
-        if (aspirant.agreementUrl)
-          await this.s3Service.deleteFile(aspirant.agreementUrl);
-        aspirant.agreementUrl = url;
-        aspirant.agreementStatus = "pending";
-        break;
-      case "property_declaration":
-        if (aspirant.propertyDeclarationUrl)
-          await this.s3Service.deleteFile(aspirant.propertyDeclarationUrl);
-        aspirant.propertyDeclarationUrl = url;
-        aspirant.propertyDeclarationStatus = "pending";
-        break;
-      case "code_of_conduct":
-        if (aspirant.codeOfConductUrl)
-          await this.s3Service.deleteFile(aspirant.codeOfConductUrl);
-        aspirant.codeOfConductUrl = url;
-        aspirant.codeOfConductStatus = "pending";
-        break;
-      case "resume":
-        if (aspirant.resumeUrl)
-          await this.s3Service.deleteFile(aspirant.resumeUrl);
-        aspirant.resumeUrl = url;
-        aspirant.resumeStatus = "pending";
-        break;
-      case "epic_card":
-        if (aspirant.epicCardUrl)
-          await this.s3Service.deleteFile(aspirant.epicCardUrl);
-        aspirant.epicCardUrl = url;
-        aspirant.epicCardStatus = "pending";
-        break;
-      case "epic_card_back":
-        if (aspirant.epicCardBackUrl)
-          await this.s3Service.deleteFile(aspirant.epicCardBackUrl);
-        aspirant.epicCardBackUrl = url;
-        aspirant.epicCardBackStatus = "pending";
-        break;
-      case "address_proof":
-        if (aspirant.addressProofUrl)
-          await this.s3Service.deleteFile(aspirant.addressProofUrl);
-        aspirant.addressProofUrl = url;
-        aspirant.addressProofStatus = "pending";
         break;
       case "recent_photo":
         if (aspirant.recentPhotoUrl)
@@ -211,30 +167,6 @@ export class MediaService {
       case "sop":
         aspirant.sopStatus = verifyDto.status;
         break;
-      case "sop_kannada":
-        aspirant.sopKannadaStatus = verifyDto.status;
-        break;
-      case "agreement":
-        aspirant.agreementStatus = verifyDto.status;
-        break;
-      case "property_declaration":
-        aspirant.propertyDeclarationStatus = verifyDto.status;
-        break;
-      case "code_of_conduct":
-        aspirant.codeOfConductStatus = verifyDto.status;
-        break;
-      case "resume":
-        aspirant.resumeStatus = verifyDto.status;
-        break;
-      case "epic_card":
-        aspirant.epicCardStatus = verifyDto.status;
-        break;
-      case "epic_card_back":
-        aspirant.epicCardBackStatus = verifyDto.status;
-        break;
-      case "address_proof":
-        aspirant.addressProofStatus = verifyDto.status;
-        break;
       case "recent_photo":
         aspirant.recentPhotoStatus = verifyDto.status;
         break;
@@ -264,10 +196,14 @@ export class MediaService {
           const keys = Object.keys(reasons || {});
           aspirant.rejectionReasons = keys.length
             ? JSON.stringify(reasons)
-            : (null as any);
+            : // persist SQL NULL to clear the field; entity types it as
+              // `string | undefined` so null requires the cast.
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              (null as any);
         }
-      } catch (e) {
-        // If parsing fails, clear the field to avoid stale data
+      } catch {
+        // If parsing fails, clear the field to avoid stale data (SQL NULL).
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         aspirant.rejectionReasons = null as any;
       }
     }
@@ -289,12 +225,12 @@ export class MediaService {
 
     // Deactivate previous versions
     await this.adminDocRepo.update(
-      { documentType: documentType as any, isActive: true },
+      { documentType: documentType as DocumentType, isActive: true },
       { isActive: false },
     );
 
     const adminDoc = this.adminDocRepo.create({
-      documentType: documentType as any,
+      documentType: documentType as DocumentType,
       documentUrl: url,
       version,
       description,

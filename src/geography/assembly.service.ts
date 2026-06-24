@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Repository } from "typeorm";
+import { Repository, FindOptionsWhere } from "typeorm";
 import { Assembly } from "./assembly.entity";
 import { CreateAssemblyDto } from "./dto/create-assembly.dto";
 
@@ -27,7 +27,7 @@ export class AssemblyService {
   }
 
   findAll(state?: string, parliamentary?: string) {
-    const where: any = {};
+    const where: FindOptionsWhere<Assembly> = {};
     if (state) where.state = state;
     if (parliamentary) where.parliamentary = parliamentary;
 

@@ -2,7 +2,9 @@ import { IsOptional, IsString, MaxLength } from "class-validator";
 import { ApiProperty } from "@nestjs/swagger";
 
 export class RegisterDeviceTokenDto {
-  @ApiProperty({ description: "FCM registration token from the web client (getToken)" })
+  @ApiProperty({
+    description: "FCM registration token from the web client (getToken)",
+  })
   @IsString()
   token!: string;
 
@@ -18,7 +20,9 @@ export class RegisterDeviceTokenDto {
 }
 
 export class RemoveDeviceTokenDto {
-  @ApiProperty({ description: "FCM registration token to remove (e.g. on logout)" })
+  @ApiProperty({
+    description: "FCM registration token to remove (e.g. on logout)",
+  })
   @IsString()
   token!: string;
 }

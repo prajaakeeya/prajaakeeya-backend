@@ -21,13 +21,7 @@ function buildService(repo: Record<string, any> = {}): any {
 // resolves to [rows, total] — used by getMessages().
 function qbReturning(rows: any[], total: number): any {
   const qb: any = {};
-  for (const m of [
-    "innerJoinAndSelect",
-    "where",
-    "orderBy",
-    "skip",
-    "take",
-  ]) {
+  for (const m of ["innerJoinAndSelect", "where", "orderBy", "skip", "take"]) {
     qb[m] = jest.fn(() => qb);
   }
   qb.getManyAndCount = jest.fn(async () => [rows, total]);

@@ -75,36 +75,6 @@ export class Aspirant extends BaseEntity {
   @JoinColumn({ name: "userId" })
   user?: User;
 
-  @Column({ type: "text", nullable: true })
-  identityBackground?: string;
-
-  @Column({ type: "text", nullable: true })
-  resignationPledge?: string;
-
-  @Column({ type: "text", nullable: true })
-  financialIntegrity?: string;
-
-  @Column({ type: "text", nullable: true })
-  noHighCommand?: string;
-
-  @Column({ type: "text", nullable: true })
-  technicalCompetence?: string;
-
-  @Column({ type: "text", nullable: true })
-  transparency?: string;
-
-  @Column({ type: "text", nullable: true })
-  emergencyProtocol?: string;
-
-  @Column({ type: "text", nullable: true })
-  expertConsultation?: string;
-
-  @Column({ type: "text", nullable: true })
-  voterFeedback?: string;
-
-  @Column({ type: "text", nullable: true })
-  primaryRule?: string;
-
   // Document uploads with verification status
   @Column({ type: "text", nullable: true })
   sopUrl?: string;
@@ -120,54 +90,6 @@ export class Aspirant extends BaseEntity {
 
   @Column({ name: "sop_agreed_at", type: "timestamp", nullable: true })
   sopAgreedAt?: Date | null;
-
-  @Column({ type: "text", nullable: true })
-  sopKannadaUrl?: string;
-
-  @Column({ type: "varchar", default: "pending" })
-  sopKannadaStatus!: "pending" | "verified" | "rejected";
-
-  @Column({ type: "text", nullable: true })
-  agreementUrl?: string;
-
-  @Column({ type: "varchar", default: "pending" })
-  agreementStatus!: "pending" | "verified" | "rejected";
-
-  @Column({ type: "text", nullable: true })
-  propertyDeclarationUrl?: string;
-
-  @Column({ type: "varchar", default: "pending" })
-  propertyDeclarationStatus!: "pending" | "verified" | "rejected";
-
-  @Column({ type: "text", nullable: true })
-  codeOfConductUrl?: string;
-
-  @Column({ type: "varchar", default: "pending" })
-  codeOfConductStatus!: "pending" | "verified" | "rejected";
-
-  @Column({ type: "text", nullable: true })
-  resumeUrl?: string;
-
-  @Column({ type: "varchar", default: "pending" })
-  resumeStatus!: "pending" | "verified" | "rejected";
-
-  @Column({ type: "text", nullable: true })
-  epicCardUrl?: string;
-
-  @Column({ type: "varchar", default: "pending" })
-  epicCardStatus!: "pending" | "verified" | "rejected";
-
-  @Column({ type: "text", nullable: true })
-  epicCardBackUrl?: string;
-
-  @Column({ type: "varchar", default: "pending" })
-  epicCardBackStatus!: "pending" | "verified" | "rejected";
-
-  @Column({ type: "text", nullable: true })
-  addressProofUrl?: string;
-
-  @Column({ type: "varchar", default: "pending" })
-  addressProofStatus!: "pending" | "verified" | "rejected";
 
   @Column({ type: "text", nullable: true })
   recentPhotoUrl?: string;

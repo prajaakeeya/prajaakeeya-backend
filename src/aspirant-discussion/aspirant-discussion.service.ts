@@ -18,7 +18,7 @@ export class AspirantDiscussionService {
 
   async createMessage(
     userId: number,
-    userRole: string,
+    userRole: string | undefined,
     aspirantId: number,
     dto: CreateAspirantDiscussionMessageDto,
   ) {
@@ -57,7 +57,7 @@ export class AspirantDiscussionService {
     const [messages, total] = await messagesQuery.getManyAndCount();
 
     // Format messages to include aspirant and ward information
-    const formattedMessages = messages.map((message: any) => ({
+    const formattedMessages = messages.map((message) => ({
       id: message.id,
       content: message.content,
       createdAt: message.createdAt,
@@ -92,7 +92,11 @@ export class AspirantDiscussionService {
     };
   }
 
-  async deleteMessage(messageId: number, userId: number, userRole: string) {
+  async deleteMessage(
+    messageId: number,
+    userId: number,
+    userRole: string | undefined,
+  ) {
     const message = await this.messageRepo.findOne({
       where: { id: messageId },
     });

@@ -7,7 +7,7 @@ import { StatsService } from "./stats.service";
  *
  * The service aggregates three things in parallel:
  *   1. voter count — a manager query builder ending in getRawOne -> { count }
- *   2. aspirant count — an aspirantRepo query builder ending in getCount
+ *   2. aspirant count — a candidacyRepo query builder ending in getCount
  *   3. constituency name — a manager query builder (per election type)
  *      ending in getRawOne -> { name }, with errors swallowed to null.
  *
@@ -38,7 +38,7 @@ function makeQb(terminal: { getRawOne?: any; getCount?: any }): any {
 /**
  * Build a StatsService whose manager.createQueryBuilder() returns the queued
  * builders in order (first the voter-count builder, then the name builder),
- * and whose aspirantRepo.createQueryBuilder() returns the aspirant builder.
+ * and whose candidacyRepo.createQueryBuilder() returns the aspirant builder.
  */
 function makeService(opts: {
   election: any;
@@ -203,9 +203,9 @@ describe("StatsService — findStatsByConstituency()", () => {
       },
     });
 
-    await expect(
-      service.findStatsByConstituency(99, 1),
-    ).rejects.toThrow(NotFoundException);
+    await expect(service.findStatsByConstituency(99, 1)).rejects.toThrow(
+      NotFoundException,
+    );
   });
 });
 

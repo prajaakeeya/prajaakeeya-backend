@@ -1,11 +1,6 @@
 import { Controller, Get, Query, UseInterceptors } from "@nestjs/common";
 import { CacheInterceptor, CacheTTL } from "@nestjs/cache-manager";
-import {
-  ApiOperation,
-  ApiQuery,
-  ApiResponse,
-  ApiTags,
-} from "@nestjs/swagger";
+import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from "@nestjs/swagger";
 import { Public } from "../common/decorators/public.decorator";
 import { StatsService } from "./stats.service";
 

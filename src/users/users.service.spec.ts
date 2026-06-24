@@ -1,5 +1,5 @@
 import "reflect-metadata";
-import { BadRequestException, NotFoundException } from "@nestjs/common";
+import { NotFoundException } from "@nestjs/common";
 import { UsersService } from "./users.service";
 
 /**
@@ -18,15 +18,25 @@ function makeService(fields: Record<string, any>): any {
 }
 
 describe("UsersService — createReport()", () => {
-  const dto = { reportedUserId: 5, reportedUserType: "voter", reason: "Not from this ward" };
+  const dto = {
+    reportedUserId: 5,
+    reportedUserType: "voter",
+    reason: "Not from this ward",
+  };
 
   it("throws when the reported user does not exist", async () => {
-    const service = makeService({ repo: { findOne: jest.fn(async () => null) } });
-    await expect(service.createReport(dto, 1)).rejects.toThrow(NotFoundException);
+    const service = makeService({
+      repo: { findOne: jest.fn(async () => null) },
+    });
+    await expect(service.createReport(dto, 1)).rejects.toThrow(
+      NotFoundException,
+    );
   });
 
   it("rejects an attachment with a disallowed mime type", async () => {
-    const service = makeService({ repo: { findOne: jest.fn(async () => ({ id: 5 })) } });
+    const service = makeService({
+      repo: { findOne: jest.fn(async () => ({ id: 5 })) },
+    });
     const file: any = { mimetype: "text/plain" };
     await expect(service.createReport(dto, 1, file)).rejects.toThrow(
       "Only PDF, JPEG, and PNG",
@@ -55,7 +65,9 @@ describe("UsersService — createReport()", () => {
       }),
     );
     expect(uploadFile).not.toHaveBeenCalled();
-    expect(result).toEqual(expect.objectContaining({ id: 11, status: "pending" }));
+    expect(result).toEqual(
+      expect.objectContaining({ id: 11, status: "pending" }),
+    );
   });
 
   it("uploads a valid attachment and stores its URL", async () => {
@@ -92,7 +104,10 @@ describe("UsersService — findAllVoters() pagination + shaping", () => {
   }
 
   it("applies skip/take and returns shaped, paginated data", async () => {
-    const qb = qbReturning([{ id: 1, name: "Asha", role: "voter", ward: null }], 42);
+    const qb = qbReturning(
+      [{ id: 1, name: "Asha", role: "voter", ward: null }],
+      42,
+    );
     const count = jest.fn(async () => 40);
     const service = makeService({
       repo: { createQueryBuilder: jest.fn(() => qb), count },

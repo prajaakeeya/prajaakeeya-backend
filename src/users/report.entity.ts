@@ -40,9 +40,9 @@ export class Report extends BaseEntity {
     name: "resolved_at",
     type: "timestamp",
     nullable: true,
-    transformer: dateToEpoch as any,
+    transformer: dateToEpoch,
   })
-  resolvedAt?: any;
+  resolvedAt?: number | Date;
 
   @Column({ name: "resolved_by_id", nullable: true })
   resolvedById?: number;

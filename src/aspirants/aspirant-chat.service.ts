@@ -11,6 +11,7 @@ import { CreateAspirantMessageDto } from "./dto/create-aspirant-message.dto";
 import { GetAspirantMessagesDto } from "./dto/get-aspirant-messages.dto";
 import { NotificationsService } from "../notifications/notifications.service";
 import { ChatEventsService } from "./chat-events.service";
+import { User } from "../users/user.entity";
 
 @Injectable()
 export class AspirantChatService {
@@ -52,8 +53,8 @@ export class AspirantChatService {
           relations: ["user"],
         }),
         this.repo.manager
-          .getRepository("User" as any)
-          .findOne({ where: { id: userId } as any })
+          .getRepository(User)
+          .findOne({ where: { id: userId } })
           .catch(() => null),
       ]);
       if (aspirant) {
@@ -62,7 +63,7 @@ export class AspirantChatService {
           aspirantUserId: aspirant.userId ?? null,
           aspirantName: aspirant.name,
           senderId: userId,
-          senderName: (sender as any)?.name ?? null,
+          senderName: sender?.name ?? null,
           content: dto.content,
         });
       }

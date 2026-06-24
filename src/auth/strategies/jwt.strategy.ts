@@ -3,6 +3,7 @@ import { CACHE_MANAGER } from "@nestjs/cache-manager";
 import type { Cache } from "cache-manager";
 import { PassportStrategy } from "@nestjs/passport";
 import { ExtractJwt, Strategy } from "passport-jwt";
+import { sessionCookieExtractor } from "../session-cookie";
 
 interface JwtPayload {
   sub: number;
@@ -27,7 +28,13 @@ export const tokenVersionCacheKey = (userId: number) =>
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(@Inject(CACHE_MANAGER) private readonly cache: Cache) {
     super({
-      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      // Accept the token from either the Authorization header (bearer clients:
+      // admin panel, native apps) or the HttpOnly session cookie (OAuth web
+      // sessions) — both flows authenticate with the same signed JWT.
+      jwtFromRequest: ExtractJwt.fromExtractors([
+        ExtractJwt.fromAuthHeaderAsBearerToken(),
+        sessionCookieExtractor,
+      ]),
       ignoreExpiration: false,
       secretOrKey: process.env.JWT_SECRET,
       // Pin the accepted signature algorithm — without this, passport-jwt

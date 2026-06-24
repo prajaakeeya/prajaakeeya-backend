@@ -8,7 +8,19 @@ import {
 import { CACHE_MANAGER } from "@nestjs/cache-manager";
 import type { Cache } from "cache-manager";
 import { JwtService } from "@nestjs/jwt";
+import type { Request, Response } from "express";
 import { tokenVersionCacheKey } from "../../auth/strategies/jwt.strategy";
+import { sessionCookieExtractor } from "../../auth/session-cookie";
+import { AuthUser } from "../decorators/current-user.decorator";
+
+/** Shape of the verified SSE JWT payload (subset of fields we rely on). */
+interface SseJwtPayload {
+  sub: number;
+  role?: string;
+  wardId?: number;
+  tokenVersion?: number;
+  isBlocked?: boolean;
+}
 
 /**
  * Auth guard for Server-Sent Events routes.
@@ -32,20 +44,25 @@ export class SseJwtAuthGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const req = context.switchToHttp().getRequest();
-    const res = context.switchToHttp().getResponse();
+    const req = context
+      .switchToHttp()
+      .getRequest<Request & { user?: AuthUser }>();
+    const res = context.switchToHttp().getResponse<Response>();
     res.setHeader("X-Accel-Buffering", "no");
 
     const header: string | undefined = req.headers?.authorization;
     const token: string | undefined =
+      // Cookie first — set automatically by the browser, keeps the JWT out of
+      // the URL (a `?token=` query leaks into access logs / Referer).
+      sessionCookieExtractor(req) ||
       (req.query?.token as string) ||
       (header?.startsWith("Bearer ") ? header.slice(7) : undefined);
 
     if (!token) throw new UnauthorizedException("Missing token");
 
-    let payload: any;
+    let payload: SseJwtPayload;
     try {
-      payload = this.jwtService.verify(token, {
+      payload = this.jwtService.verify<SseJwtPayload>(token, {
         secret: process.env.JWT_SECRET,
         algorithms: ["HS256"],
       });

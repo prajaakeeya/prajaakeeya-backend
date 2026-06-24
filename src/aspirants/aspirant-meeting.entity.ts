@@ -1,6 +1,7 @@
 import { Column, Entity, ManyToOne, OneToMany } from "typeorm";
 import { BaseEntity } from "../common/base.entity";
 import { Aspirant } from "./aspirant.entity";
+import type { MeetingResponse } from "./meeting-response.entity";
 
 @Entity("aspirant_meetings")
 export class AspirantMeeting extends BaseEntity {
@@ -46,5 +47,5 @@ export class AspirantMeeting extends BaseEntity {
   aspirantId!: number;
 
   @OneToMany("MeetingResponse", "meeting")
-  responses?: any[];
+  responses?: MeetingResponse[];
 }

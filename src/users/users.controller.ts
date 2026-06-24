@@ -4,7 +4,6 @@ import {
   Post,
   Delete,
   Body,
-  Param,
   UseGuards,
   Req,
   UseInterceptors,
@@ -16,7 +15,6 @@ import {
   ApiTags,
   ApiOperation,
   ApiResponse,
-  ApiParam,
   ApiBearerAuth,
   ApiConsumes,
   ApiBody,
@@ -30,6 +28,9 @@ import { UpdateUserDto } from "./dto/update-user.dto";
 import { UpdateConstituenciesDto } from "./dto/update-constituencies.dto";
 import { TrackInteractionDto } from "./dto/track-interaction.dto";
 import { JwtAuthGuard } from "../common/guards/jwt-auth.guard";
+import { AuthUser } from "../common/decorators/current-user.decorator";
+
+type AuthedRequest = { user: AuthUser };
 
 @ApiTags("Users")
 @Controller("users")
@@ -120,7 +121,7 @@ export class UsersController {
   async createReport(
     @Body() createReportDto: CreateReportDto,
     @UploadedFile() file: Express.Multer.File,
-    @Req() req: any,
+    @Req() req: AuthedRequest,
   ) {
     const reportedById = req.user?.id;
     return this.usersService.createReport(createReportDto, reportedById, file);
@@ -134,7 +135,7 @@ export class UsersController {
     status: 200,
     description: "List of reports submitted by the user",
   })
-  async getMyReports(@Req() req: any) {
+  async getMyReports(@Req() req: AuthedRequest) {
     return this.usersService.getReportsByUser(req.user.id);
   }
 
@@ -150,7 +151,7 @@ export class UsersController {
     description: "Only voters can delete their account",
   })
   @ApiResponse({ status: 401, description: "Unauthorized" })
-  async deleteAccount(@Req() req: any) {
+  async deleteAccount(@Req() req: AuthedRequest) {
     return this.usersService.deleteAccount(req.user.id);
   }
 
@@ -164,7 +165,7 @@ export class UsersController {
   })
   @ApiResponse({ status: 404, description: "User not found" })
   @ApiResponse({ status: 401, description: "Unauthorized" })
-  async trackChat(@Body() dto: TrackInteractionDto, @Req() req: any) {
+  async trackChat(@Body() dto: TrackInteractionDto, @Req() req: AuthedRequest) {
     const userId = req.user?.id;
     return this.usersService.trackChat(userId, dto.aspirantId);
   }
@@ -179,7 +180,10 @@ export class UsersController {
   })
   @ApiResponse({ status: 404, description: "User not found" })
   @ApiResponse({ status: 401, description: "Unauthorized" })
-  async trackMeeting(@Body() dto: TrackInteractionDto, @Req() req: any) {
+  async trackMeeting(
+    @Body() dto: TrackInteractionDto,
+    @Req() req: AuthedRequest,
+  ) {
     const userId = req.user?.id;
     return this.usersService.trackMeeting(userId, dto.aspirantId);
   }
@@ -194,7 +198,10 @@ export class UsersController {
   })
   @ApiResponse({ status: 404, description: "User not found" })
   @ApiResponse({ status: 401, description: "Unauthorized" })
-  async trackDirectMeet(@Body() dto: TrackInteractionDto, @Req() req: any) {
+  async trackDirectMeet(
+    @Body() dto: TrackInteractionDto,
+    @Req() req: AuthedRequest,
+  ) {
     const userId = req.user?.id;
     return this.usersService.trackDirectMeet(userId, dto.aspirantId);
   }
@@ -215,7 +222,10 @@ export class UsersController {
   })
   @ApiResponse({ status: 404, description: "User not found" })
   @ApiResponse({ status: 401, description: "Unauthorized" })
-  async trackPhoneCall(@Body() dto: TrackInteractionDto, @Req() req: any) {
+  async trackPhoneCall(
+    @Body() dto: TrackInteractionDto,
+    @Req() req: AuthedRequest,
+  ) {
     const userId = req.user?.id;
     return this.usersService.trackPhoneCall(
       userId,
@@ -230,7 +240,7 @@ export class UsersController {
   @ApiOperation({ summary: "Get last interaction message for current user" })
   @ApiResponse({ status: 200, description: "Returns last interaction message" })
   @ApiResponse({ status: 401, description: "Unauthorized" })
-  async getLastInteractionMessage(@Req() req: any) {
+  async getLastInteractionMessage(@Req() req: AuthedRequest) {
     const userId = req.user?.id;
     const message = await this.usersService.getLastInteractionMessage(userId);
     return { message };
@@ -242,7 +252,7 @@ export class UsersController {
   @ApiOperation({ summary: "Get current user profile" })
   @ApiResponse({ status: 200, description: "User profile returned" })
   @ApiResponse({ status: 401, description: "Unauthorized" })
-  async getMe(@Req() req: any) {
+  async getMe(@Req() req: AuthedRequest) {
     return this.usersService.getUserById(req.user.id);
   }
 
@@ -267,14 +277,14 @@ export class UsersController {
   })
   @ApiResponse({ status: 200, description: "Profile updated successfully" })
   @ApiResponse({ status: 401, description: "Unauthorized" })
-  async updateMe(@Body() dto: UpdateUserDto, @Req() req: any) {
+  async updateMe(@Body() dto: UpdateUserDto, @Req() req: AuthedRequest) {
     const userId = req.user?.id;
     // Only allow specific fields to be updated by the user (no relativeName, epicId, wardId, or profilePicture)
     const allowed: Partial<UpdateUserDto> = {};
     if (dto.name !== undefined) allowed.name = dto.name;
     if (dto.phone !== undefined) allowed.phone = dto.phone;
     if (dto.gender !== undefined) allowed.gender = dto.gender;
-    if ((dto as any).age !== undefined) allowed.age = (dto as any).age;
+    if (dto.age !== undefined) allowed.age = dto.age;
     if (dto.lokSabhaConstituencyId !== undefined)
       allowed.lokSabhaConstituencyId = dto.lokSabhaConstituencyId;
     if (dto.stateAssemblyConstituencyId !== undefined)
@@ -299,7 +309,7 @@ export class UsersController {
   @ApiResponse({ status: 401, description: "Unauthorized" })
   async setConstituencies(
     @Body() dto: UpdateConstituenciesDto,
-    @Req() req: any,
+    @Req() req: AuthedRequest,
   ) {
     const userId = req.user?.id;
     return this.usersService.updateConstituencies(userId, dto);

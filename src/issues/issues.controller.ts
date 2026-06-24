@@ -22,7 +22,10 @@ import { IssuesService } from "./issues.service";
 import { CreateIssueDto } from "./dto/create-issue.dto";
 import { UpdateIssueDto } from "./dto/update-issue.dto";
 import { CreateHandRaiseDto } from "./dto/create-hand-raise.dto";
-import { CurrentUser } from "../common/decorators/current-user.decorator";
+import {
+  CurrentUser,
+  AuthUser,
+} from "../common/decorators/current-user.decorator";
 
 @ApiTags("Ward Issues")
 @Controller("issues")
@@ -49,7 +52,7 @@ export class IssuesController {
   })
   @ApiResponse({ status: 201, description: "Issue created" })
   create(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Query("electionId") electionId: string,
     @Query("constituencyId") constituencyId: string,
     @Body() dto: CreateIssueDto,
@@ -82,7 +85,7 @@ export class IssuesController {
   })
   @ApiResponse({ status: 200, description: "Hand raise toggled" })
   handRaise(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Query("electionId") electionId: string,
     @Query("constituencyId") constituencyId: string,
     @Body() dto: CreateHandRaiseDto,
@@ -161,7 +164,7 @@ export class IssuesController {
   @ApiQuery({ name: "electionId", required: true, type: Number })
   @ApiQuery({ name: "constituencyId", required: true, type: Number })
   update(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Param("id") id: string,
     @Query("electionId") electionId: string,
     @Query("constituencyId") constituencyId: string,
@@ -184,7 +187,7 @@ export class IssuesController {
   @ApiQuery({ name: "electionId", required: true, type: Number })
   @ApiQuery({ name: "constituencyId", required: true, type: Number })
   delete(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Param("id") id: string,
     @Query("electionId") electionId: string,
     @Query("constituencyId") constituencyId: string,

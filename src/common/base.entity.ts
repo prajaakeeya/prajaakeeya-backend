@@ -2,6 +2,7 @@ import {
   CreateDateColumn,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
+  ValueTransformer,
 } from "typeorm";
 
 // Postgres returns DATE/TIMESTAMP columns as JS Date objects. The frontend
@@ -11,21 +12,21 @@ import {
 //
 // Exported so non-BaseEntity columns (VotingWindow.startTime, etc.) can use
 // the same transformer.
-export const dateToEpoch = {
+export const dateToEpoch: ValueTransformer = {
   to: (v?: number | Date | null) => {
     if (v == null) return v;
     return v instanceof Date ? v : new Date(v);
   },
-  from: (v?: Date | null) => (v ? new Date(v).getTime() : (v as any)),
+  from: (v?: Date | null) => (v ? new Date(v).getTime() : v),
 };
 
 export abstract class BaseEntity {
   @PrimaryGeneratedColumn()
   id!: number;
 
-  @CreateDateColumn({ name: "created_at", transformer: dateToEpoch as any })
-  createdAt!: any;
+  @CreateDateColumn({ name: "created_at", transformer: dateToEpoch })
+  createdAt!: number | Date;
 
-  @UpdateDateColumn({ name: "updated_at", transformer: dateToEpoch as any })
-  updatedAt!: any;
+  @UpdateDateColumn({ name: "updated_at", transformer: dateToEpoch })
+  updatedAt!: number | Date;
 }

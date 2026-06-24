@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Repository } from "typeorm";
+import { Repository, FindOptionsWhere } from "typeorm";
 import { CreateWardDto } from "./dto/create-ward.dto";
 import { Ward } from "./ward.entity";
 import { GetWardsDto } from "./dto/get-wards.dto";
@@ -40,7 +40,7 @@ export class WardsService {
       return this.repo.find();
     }
 
-    const where: any = {};
+    const where: FindOptionsWhere<Ward> = {};
     if (query.state) where.state = query.state;
     if (query.parliamentary) where.parliamentary = query.parliamentary;
     if (query.assembly) where.assembly = query.assembly;

@@ -18,7 +18,10 @@ import { JwtAuthGuard } from "../common/guards/jwt-auth.guard";
 import { AspirantWardMeetingsService } from "./aspirant-ward-meetings.service";
 import { CreateAspirantWardMeetingDto } from "./dto/create-aspirant-ward-meeting.dto";
 import { CompleteWardMeetingDto } from "./dto/complete-ward-meeting.dto";
-import { CurrentUser } from "../common/decorators/current-user.decorator";
+import {
+  CurrentUser,
+  AuthUser,
+} from "../common/decorators/current-user.decorator";
 
 @ApiTags("Aspirant Ward Meetings")
 @Controller("aspirant-ward-meetings")
@@ -33,7 +36,10 @@ export class AspirantWardMeetingsController {
   })
   @ApiResponse({ status: 201, description: "Meeting created successfully" })
   @ApiResponse({ status: 401, description: "Unauthorized" })
-  create(@CurrentUser() user: any, @Body() dto: CreateAspirantWardMeetingDto) {
+  create(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: CreateAspirantWardMeetingDto,
+  ) {
     return this.service.createMeetingForAspirant(user.id, dto);
   }
 
@@ -50,7 +56,7 @@ export class AspirantWardMeetingsController {
     status: 404,
     description: "Aspirant profile not found for this user",
   })
-  my(@CurrentUser() user: any) {
+  my(@CurrentUser() user: AuthUser) {
     return this.service.getMeetingsForUserWard(user.id);
   }
 
@@ -67,7 +73,7 @@ export class AspirantWardMeetingsController {
   @ApiResponse({ status: 401, description: "Unauthorized" })
   @ApiResponse({ status: 403, description: "Forbidden" })
   complete(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Param("meetingId") meetingId: string,
     @Body() dto: CompleteWardMeetingDto,
   ) {
@@ -88,7 +94,7 @@ export class AspirantWardMeetingsController {
   @ApiResponse({ status: 200, description: "Meeting deleted" })
   @ApiResponse({ status: 401, description: "Unauthorized" })
   @ApiResponse({ status: 403, description: "Forbidden" })
-  delete(@CurrentUser() user: any, @Param("meetingId") meetingId: string) {
+  delete(@CurrentUser() user: AuthUser, @Param("meetingId") meetingId: string) {
     return this.service.deleteMeeting(user.id, Number(meetingId));
   }
 }

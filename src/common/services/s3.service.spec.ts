@@ -27,19 +27,23 @@ describe("S3Service.extractKeyFromUrl", () => {
   });
 
   it("extracts the key from a default cloudfront.net URL", () => {
-    expect(extract("https://d111abcdef8.cloudfront.net/profile/9-pic.jpg")).toBe(
-      "profile/9-pic.jpg",
-    );
+    expect(
+      extract("https://d111abcdef8.cloudfront.net/profile/9-pic.jpg"),
+    ).toBe("profile/9-pic.jpg");
   });
 
   it("extracts the key from an S3 virtual-hosted URL", () => {
     expect(
-      extract("https://prajaakeeya.s3.ap-south-1.amazonaws.com/profile/9-pic.jpg"),
+      extract(
+        "https://prajaakeeya.s3.ap-south-1.amazonaws.com/profile/9-pic.jpg",
+      ),
     ).toBe("profile/9-pic.jpg");
   });
 
   it("decodes URL-encoded characters in the key", () => {
-    expect(extract("https://cdn.prajaakeeya.org/docs/a%20b.pdf")).toBe("docs/a b.pdf");
+    expect(extract("https://cdn.prajaakeeya.org/docs/a%20b.pdf")).toBe(
+      "docs/a b.pdf",
+    );
   });
 
   it("returns a bare key unchanged", () => {

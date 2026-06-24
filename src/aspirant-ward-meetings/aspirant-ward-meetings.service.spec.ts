@@ -113,7 +113,9 @@ describe("AspirantWardMeetingsService — createMeetingForAspirant()", () => {
           scheduledAt: 1718570400000,
         })),
       },
-      electionsService: { findById: jest.fn(async () => ({ type: "lok_sabha" })) },
+      electionsService: {
+        findById: jest.fn(async () => ({ type: "lok_sabha" })),
+      },
       notificationsService: { notifyAspirantMeeting },
     });
 
@@ -152,7 +154,9 @@ describe("AspirantWardMeetingsService — createMeetingForAspirant()", () => {
           scheduledAt: null,
         })),
       },
-      electionsService: { findById: jest.fn(async () => ({ type: "lok_sabha" })) },
+      electionsService: {
+        findById: jest.fn(async () => ({ type: "lok_sabha" })),
+      },
       notificationsService: { notifyAspirantMeeting },
     });
 
@@ -166,7 +170,11 @@ describe("AspirantWardMeetingsService — createMeetingForAspirant()", () => {
   });
 
   it("still returns the created meeting when notification fan-out throws (best-effort)", async () => {
-    const created = { id: 50, title: "Ward Townhall", scheduledAt: 1718570400000 };
+    const created = {
+      id: 50,
+      title: "Ward Townhall",
+      scheduledAt: 1718570400000,
+    };
     const service = buildService({
       aspirantsService: {
         findByUserId: jest.fn(async () => ({
@@ -198,7 +206,9 @@ describe("AspirantWardMeetingsService — getMeetingsForUserWard()", () => {
     const getActiveMeetingsByWard = jest.fn(async () => ["m1", "m2"]);
     const findByUserId = jest.fn();
     const service = buildService({
-      usersService: { findById: jest.fn(async () => ({ id: userId, wardId: 7 })) },
+      usersService: {
+        findById: jest.fn(async () => ({ id: userId, wardId: 7 })),
+      },
       aspirantsService: { findByUserId },
       wardsService: { getActiveMeetingsByWard },
     });
@@ -213,7 +223,9 @@ describe("AspirantWardMeetingsService — getMeetingsForUserWard()", () => {
   it("falls back to the aspirant record's ward when the user has none", async () => {
     const getActiveMeetingsByWard = jest.fn(async () => ["m1"]);
     const service = buildService({
-      usersService: { findById: jest.fn(async () => ({ id: userId, wardId: null })) },
+      usersService: {
+        findById: jest.fn(async () => ({ id: userId, wardId: null })),
+      },
       aspirantsService: { findByUserId: jest.fn(async () => ({ wardId: 4 })) },
       wardsService: { getActiveMeetingsByWard },
     });
@@ -247,8 +259,12 @@ describe("AspirantWardMeetingsService — completeMeeting()", () => {
 
   it("rejects a non-creator non-admin caller", async () => {
     const service = buildService({
-      wardsService: { getMeetingById: jest.fn(async () => ({ id: 99, createdById: 2 })) },
-      usersService: { findById: jest.fn(async () => ({ id: 1, role: "voter" })) },
+      wardsService: {
+        getMeetingById: jest.fn(async () => ({ id: 99, createdById: 2 })),
+      },
+      usersService: {
+        findById: jest.fn(async () => ({ id: 1, role: "voter" })),
+      },
     });
     await expect(service.completeMeeting(1, 99, "notes")).rejects.toThrow(
       ForbiddenException,
@@ -256,13 +272,18 @@ describe("AspirantWardMeetingsService — completeMeeting()", () => {
   });
 
   it("allows the meeting creator to complete it", async () => {
-    const completeMeeting = jest.fn(async () => ({ id: 99, status: "completed" }));
+    const completeMeeting = jest.fn(async () => ({
+      id: 99,
+      status: "completed",
+    }));
     const service = buildService({
       wardsService: {
         getMeetingById: jest.fn(async () => ({ id: 99, createdById: 1 })),
         completeMeeting,
       },
-      usersService: { findById: jest.fn(async () => ({ id: 1, role: "voter" })) },
+      usersService: {
+        findById: jest.fn(async () => ({ id: 1, role: "voter" })),
+      },
     });
 
     const result = await service.completeMeeting(1, 99, "Great turnout");
@@ -278,7 +299,9 @@ describe("AspirantWardMeetingsService — completeMeeting()", () => {
         getMeetingById: jest.fn(async () => ({ id: 99, createdById: 2 })),
         completeMeeting,
       },
-      usersService: { findById: jest.fn(async () => ({ id: 1, role: "admin" })) },
+      usersService: {
+        findById: jest.fn(async () => ({ id: 1, role: "admin" })),
+      },
     });
 
     await service.completeMeeting(1, 99, "notes");
@@ -292,7 +315,9 @@ describe("AspirantWardMeetingsService — deleteMeeting()", () => {
     const service = buildService({
       wardsService: { getMeetingById: jest.fn(async () => null) },
     });
-    await expect(service.deleteMeeting(1, 99)).rejects.toThrow(NotFoundException);
+    await expect(service.deleteMeeting(1, 99)).rejects.toThrow(
+      NotFoundException,
+    );
   });
 
   it("rejects a non-creator non-admin caller and does not delete", async () => {
@@ -302,9 +327,13 @@ describe("AspirantWardMeetingsService — deleteMeeting()", () => {
         getMeetingById: jest.fn(async () => ({ id: 99, createdById: 2 })),
         deleteMeeting,
       },
-      usersService: { findById: jest.fn(async () => ({ id: 1, role: "voter" })) },
+      usersService: {
+        findById: jest.fn(async () => ({ id: 1, role: "voter" })),
+      },
     });
-    await expect(service.deleteMeeting(1, 99)).rejects.toThrow(ForbiddenException);
+    await expect(service.deleteMeeting(1, 99)).rejects.toThrow(
+      ForbiddenException,
+    );
     expect(deleteMeeting).not.toHaveBeenCalled();
   });
 
@@ -315,7 +344,9 @@ describe("AspirantWardMeetingsService — deleteMeeting()", () => {
         getMeetingById: jest.fn(async () => ({ id: 99, createdById: 1 })),
         deleteMeeting,
       },
-      usersService: { findById: jest.fn(async () => ({ id: 1, role: "voter" })) },
+      usersService: {
+        findById: jest.fn(async () => ({ id: 1, role: "voter" })),
+      },
     });
 
     const result = await service.deleteMeeting(1, 99);
@@ -331,7 +362,9 @@ describe("AspirantWardMeetingsService — deleteMeeting()", () => {
         getMeetingById: jest.fn(async () => ({ id: 99, createdById: 2 })),
         deleteMeeting,
       },
-      usersService: { findById: jest.fn(async () => ({ id: 1, role: "admin" })) },
+      usersService: {
+        findById: jest.fn(async () => ({ id: 1, role: "admin" })),
+      },
     });
 
     const result = await service.deleteMeeting(1, 99);

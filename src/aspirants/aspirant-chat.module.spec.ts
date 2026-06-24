@@ -15,7 +15,8 @@ describe("AspirantChatModule", () => {
 
   it("should define AspirantChatController as a controller", () => {
     const controllers =
-      Reflect.getMetadata(MODULE_METADATA.CONTROLLERS, AspirantChatModule) ?? [];
+      Reflect.getMetadata(MODULE_METADATA.CONTROLLERS, AspirantChatModule) ??
+      [];
 
     expect(controllers).toContain(AspirantChatController);
   });

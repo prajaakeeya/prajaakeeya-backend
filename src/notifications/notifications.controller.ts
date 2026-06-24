@@ -16,7 +16,10 @@ import {
   ApiResponse,
   ApiTags,
 } from "@nestjs/swagger";
-import { CurrentUser } from "../common/decorators/current-user.decorator";
+import {
+  CurrentUser,
+  AuthUser,
+} from "../common/decorators/current-user.decorator";
 import { JwtAuthGuard } from "../common/guards/jwt-auth.guard";
 import { NotificationsService } from "./notifications.service";
 import { FirebaseService } from "./firebase.service";
@@ -40,7 +43,7 @@ export class NotificationsController {
   @ApiOperation({ summary: "Register an FCM device token for web push" })
   @ApiResponse({ status: 201, description: "Token registered" })
   async registerDeviceToken(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Body() dto: RegisterDeviceTokenDto,
   ) {
     await this.firebase.registerToken(user.id, dto.token, dto.platform);
@@ -51,7 +54,7 @@ export class NotificationsController {
   @ApiOperation({ summary: "Unregister an FCM device token (e.g. on logout)" })
   @ApiResponse({ status: 200, description: "Token removed" })
   async unregisterDeviceToken(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Body() dto: RemoveDeviceTokenDto,
   ) {
     await this.firebase.removeToken(user.id, dto.token);
@@ -67,7 +70,7 @@ export class NotificationsController {
   @ApiQuery({ name: "unreadOnly", required: false, type: Boolean })
   @ApiResponse({ status: 200, description: "Paginated list of notifications" })
   list(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Query("page") page?: string,
     @Query("limit") limit?: string,
     @Query("unreadOnly") unreadOnly?: string,
@@ -82,7 +85,7 @@ export class NotificationsController {
   @Get("unread-count")
   @ApiOperation({ summary: "Get unread notification count" })
   @ApiResponse({ status: 200, description: "Unread count returned" })
-  async unreadCount(@CurrentUser() user: any) {
+  async unreadCount(@CurrentUser() user: AuthUser) {
     const count = await this.service.unreadCount(user.id);
     return { unreadCount: count };
   }
@@ -92,7 +95,7 @@ export class NotificationsController {
   @ApiParam({ name: "id", type: "number" })
   @ApiResponse({ status: 200, description: "Notification marked as read" })
   @ApiResponse({ status: 404, description: "Notification not found" })
-  markRead(@CurrentUser() user: any, @Param("id") id: string) {
+  markRead(@CurrentUser() user: AuthUser, @Param("id") id: string) {
     return this.service.markRead(user.id, Number(id));
   }
 
@@ -101,7 +104,7 @@ export class NotificationsController {
     summary: "Mark every unread notification as read for this user",
   })
   @ApiResponse({ status: 200, description: "Notifications marked as read" })
-  markAllRead(@CurrentUser() user: any) {
+  markAllRead(@CurrentUser() user: AuthUser) {
     return this.service.markAllRead(user.id);
   }
 
@@ -110,7 +113,7 @@ export class NotificationsController {
     summary: "Delete every notification for this user",
   })
   @ApiResponse({ status: 200, description: "Notifications deleted" })
-  deleteAll(@CurrentUser() user: any) {
+  deleteAll(@CurrentUser() user: AuthUser) {
     return this.service.deleteAll(user.id);
   }
 
@@ -119,7 +122,7 @@ export class NotificationsController {
   @ApiParam({ name: "id", type: "number" })
   @ApiResponse({ status: 200, description: "Notification deleted" })
   @ApiResponse({ status: 404, description: "Notification not found" })
-  delete(@CurrentUser() user: any, @Param("id") id: string) {
+  delete(@CurrentUser() user: AuthUser, @Param("id") id: string) {
     return this.service.deleteOne(user.id, Number(id));
   }
 }

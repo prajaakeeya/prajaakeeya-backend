@@ -81,7 +81,9 @@ export class ReminderSchedulerService {
    */
   private async resolveAspirantContextsBulk(
     aspirantIds: number[],
-  ): Promise<Map<number, { aspirant: Aspirant; context: ConstituencyContext }>> {
+  ): Promise<
+    Map<number, { aspirant: Aspirant; context: ConstituencyContext }>
+  > {
     const out = new Map<
       number,
       { aspirant: Aspirant; context: ConstituencyContext }
@@ -259,5 +261,4 @@ export class ReminderSchedulerService {
       { reminderStartSent: true },
     );
   }
-
 }

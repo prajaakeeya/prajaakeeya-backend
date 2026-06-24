@@ -38,11 +38,7 @@ import { S3Service } from "../common/services/s3.service";
     }),
   ],
   controllers: [AuthController],
-  providers: [
-    AuthService,
-    JwtStrategy,
-    S3Service,
-  ],
+  providers: [AuthService, JwtStrategy, S3Service],
   exports: [JwtStrategy],
 })
 export class AuthModule {}

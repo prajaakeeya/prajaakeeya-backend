@@ -102,15 +102,15 @@ describe("AspirantsService — contact privacy (findOne)", () => {
       visitRepo: { find: jest.fn(async () => []) },
     });
 
+    jest.spyOn(service, "getActivityRatingsBulk").mockResolvedValue({
+      meetingRatings: {},
+      visitRatings: {},
+      contactRatings: {},
+      overallRatings: {},
+    });
     jest
-      .spyOn(service, "getActivityRatingsBulk")
-      .mockResolvedValue({
-        meetingRatings: {},
-        visitRatings: {},
-        contactRatings: {},
-        overallRatings: {},
-      });
-    jest.spyOn(service, "getMeetingResponseCounts").mockResolvedValue(new Map());
+      .spyOn(service, "getMeetingResponseCounts")
+      .mockResolvedValue(new Map());
     jest.spyOn(service, "getVisitResponseCounts").mockResolvedValue(new Map());
   });
 
@@ -221,18 +221,30 @@ describe("AspirantsService — updatePermissions()", () => {
   });
 
   it("updates only the provided flags and returns them", async () => {
-    const aspirant: any = { id: 54, userId: 56, allowPhone: true, allowWhatsapp: true, allowChat: true };
+    const aspirant: any = {
+      id: 54,
+      userId: 56,
+      allowPhone: true,
+      allowWhatsapp: true,
+      allowChat: true,
+    };
     const save = jest.fn(async (a: any) => a);
     const service = buildService({
       repo: { findOne: jest.fn(async () => aspirant), save },
     });
 
-    const result = await service.updatePermissions(54, 56, { allowPhone: false });
+    const result = await service.updatePermissions(54, 56, {
+      allowPhone: false,
+    });
 
     expect(aspirant.allowPhone).toBe(false);
     expect(aspirant.allowWhatsapp).toBe(true); // untouched
     expect(save).toHaveBeenCalledWith(aspirant);
-    expect(result).toEqual({ allowPhone: false, allowWhatsapp: true, allowChat: true });
+    expect(result).toEqual({
+      allowPhone: false,
+      allowWhatsapp: true,
+      allowChat: true,
+    });
   });
 });
 
@@ -241,7 +253,9 @@ describe("AspirantsService — withdrawAspirant()", () => {
     const service = buildService({
       repo: { findOne: jest.fn(async () => null) },
     });
-    await expect(service.withdrawAspirant(1)).rejects.toThrow(NotFoundException);
+    await expect(service.withdrawAspirant(1)).rejects.toThrow(
+      NotFoundException,
+    );
   });
 
   it("blocks withdrawal while voting is open for the same election", async () => {
@@ -262,7 +276,10 @@ describe("AspirantsService — withdrawAspirant()", () => {
     const setRole = jest.fn(async () => ({}));
     const clearPhone = jest.fn(async () => ({}));
     const service = buildService({
-      repo: { findOne: jest.fn(async () => ({ id: 5, electionId: 10 })), update },
+      repo: {
+        findOne: jest.fn(async () => ({ id: 5, electionId: 10 })),
+        update,
+      },
       votesService: {
         isVotingAllowed: jest.fn(async () => false),
         getActiveVotingWindow: jest.fn(async () => null),
@@ -272,19 +289,28 @@ describe("AspirantsService — withdrawAspirant()", () => {
 
     const result = await service.withdrawAspirant(1);
 
-    expect(update).toHaveBeenCalledWith(5, expect.objectContaining({ isActive: false }));
+    expect(update).toHaveBeenCalledWith(
+      5,
+      expect.objectContaining({ isActive: false }),
+    );
     expect(setRole).toHaveBeenCalledWith(1, "voter");
     expect(clearPhone).toHaveBeenCalledWith(1);
     expect(result).toEqual(
-      expect.objectContaining({ message: expect.stringContaining("withdrawn") }),
+      expect.objectContaining({
+        message: expect.stringContaining("withdrawn"),
+      }),
     );
   });
 });
 
 describe("AspirantsService — rateContact()", () => {
   it("rejects when the aspirant does not exist", async () => {
-    const service = buildService({ repo: { findOne: jest.fn(async () => null) } });
-    await expect(service.rateContact(54, 57, 5)).rejects.toThrow(NotFoundException);
+    const service = buildService({
+      repo: { findOne: jest.fn(async () => null) },
+    });
+    await expect(service.rateContact(54, 57, 5)).rejects.toThrow(
+      NotFoundException,
+    );
   });
 
   it("rejects when the voter has not contacted the aspirant", async () => {
@@ -302,7 +328,9 @@ describe("AspirantsService — rateContact()", () => {
     const save = jest.fn(async (x: any) => x);
     const service = buildService({
       repo: { findOne: jest.fn(async () => ({ id: 54 })) },
-      interactionRepo: { findOne: jest.fn(async () => ({ isPhoneCall: true })) },
+      interactionRepo: {
+        findOne: jest.fn(async () => ({ isPhoneCall: true })),
+      },
       activityRatingRepo: { findOne: jest.fn(async () => null), create, save },
     });
 
@@ -322,21 +350,27 @@ describe("AspirantsService — rateContact()", () => {
     const create = jest.fn();
     const service = buildService({
       repo: { findOne: jest.fn(async () => ({ id: 54 })) },
-      interactionRepo: { findOne: jest.fn(async () => ({ isPhoneCall: true })) },
+      interactionRepo: {
+        findOne: jest.fn(async () => ({ isPhoneCall: true })),
+      },
       activityRatingRepo: {
         findOne: jest.fn(async () => ({ id: 1, rating: 4 })), // already rated
         create,
       },
     });
 
-    await expect(service.rateContact(54, 57, 5)).rejects.toThrow("already rated");
+    await expect(service.rateContact(54, 57, 5)).rejects.toThrow(
+      "already rated",
+    );
     expect(create).not.toHaveBeenCalled();
   });
 });
 
 describe("AspirantsService — createBooking() (meeting request)", () => {
   it("rejects when the aspirant does not exist", async () => {
-    const service = buildService({ repo: { findOne: jest.fn(async () => null) } });
+    const service = buildService({
+      repo: { findOne: jest.fn(async () => null) },
+    });
     await expect(service.createBooking(54, 57, "hi", 123)).rejects.toThrow(
       NotFoundException,
     );
@@ -350,7 +384,12 @@ describe("AspirantsService — createBooking() (meeting request)", () => {
       bookingRepo: { create, save },
     });
 
-    const result = await service.createBooking(54, 57, "Please meet", 1780000000000);
+    const result = await service.createBooking(
+      54,
+      57,
+      "Please meet",
+      1780000000000,
+    );
 
     expect(create).toHaveBeenCalledWith({
       aspirantId: 54,
@@ -366,12 +405,23 @@ describe("AspirantsService — createBooking() (meeting request)", () => {
 
 describe("AspirantsService — createVisit()", () => {
   it("rejects when the aspirant does not exist", async () => {
-    const service = buildService({ repo: { findOne: jest.fn(async () => null) } });
+    const service = buildService({
+      repo: { findOne: jest.fn(async () => null) },
+    });
     await expect(
-      service.createVisit(54, 1780000000000, undefined, undefined, undefined, undefined, undefined, {
-        id: 57,
-        role: "voter",
-      }),
+      service.createVisit(
+        54,
+        1780000000000,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        {
+          id: 57,
+          role: "voter",
+        },
+      ),
     ).rejects.toThrow(NotFoundException);
   });
 
@@ -380,10 +430,19 @@ describe("AspirantsService — createVisit()", () => {
       repo: { findOne: jest.fn(async () => ({ id: 54, userId: 999 })) },
     });
     await expect(
-      service.createVisit(54, 1780000000000, undefined, undefined, undefined, undefined, undefined, {
-        id: 57,
-        role: "voter",
-      }),
+      service.createVisit(
+        54,
+        1780000000000,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        {
+          id: 57,
+          role: "voter",
+        },
+      ),
     ).rejects.toThrow(ForbiddenException);
   });
 
@@ -442,7 +501,12 @@ describe("AspirantsService — completeMeeting()", () => {
   });
 
   it("marks the meeting complete with notes for the owner", async () => {
-    const meeting: any = { id: 10, aspirantId: 54, completed: false, notes: null };
+    const meeting: any = {
+      id: 10,
+      aspirantId: 54,
+      completed: false,
+      notes: null,
+    };
     const save = jest.fn(async (x: any) => x);
     const service = buildService({
       repo: { findOne: jest.fn(async () => ({ id: 54, userId: 57 })) },
@@ -452,7 +516,10 @@ describe("AspirantsService — completeMeeting()", () => {
       },
     });
 
-    await service.completeMeeting(54, 10, "All done", { id: 57, role: "voter" });
+    await service.completeMeeting(54, 10, "All done", {
+      id: 57,
+      role: "voter",
+    });
 
     expect(meeting.completed).toBe(true);
     expect(meeting.notes).toBe("All done");
@@ -528,7 +595,10 @@ describe("AspirantsService — deleteMeetings() ownership", () => {
     });
     jest.spyOn(service, "findByUserId").mockResolvedValue({ id: 54 });
 
-    const result = await service.deleteMeetings([10], { id: 57, role: "voter" });
+    const result = await service.deleteMeetings([10], {
+      id: 57,
+      role: "voter",
+    });
 
     expect(deleteFn).toHaveBeenCalledWith([10]);
     expect(result).toEqual({ deleted: 1 });
@@ -604,7 +674,11 @@ describe("AspirantsService — respondToVisit()", () => {
 
     await service.respondToVisit(7, 57, true);
 
-    expect(create).toHaveBeenCalledWith({ visitId: 7, voterId: 57, attending: true });
+    expect(create).toHaveBeenCalledWith({
+      visitId: 7,
+      voterId: 57,
+      attending: true,
+    });
     expect(save).toHaveBeenCalled();
   });
 
@@ -614,7 +688,11 @@ describe("AspirantsService — respondToVisit()", () => {
     const save = jest.fn(async (x: any) => x);
     const service = buildService({
       visitRepo: { findOne: jest.fn(async () => ({ id: 7 })) },
-      visitResponseRepo: { findOne: jest.fn(async () => existing), create, save },
+      visitResponseRepo: {
+        findOne: jest.fn(async () => existing),
+        create,
+        save,
+      },
     });
 
     await service.respondToVisit(7, 57, false);
@@ -671,14 +749,18 @@ describe("AspirantsService — rateMeeting()", () => {
     const service = buildService({
       meetingRepo: { findOne: jest.fn(async () => null) },
     });
-    await expect(service.rateMeeting(10, 57, 4)).rejects.toThrow(NotFoundException);
+    await expect(service.rateMeeting(10, 57, 4)).rejects.toThrow(
+      NotFoundException,
+    );
   });
 
   it("creates a meeting rating tied to the meeting's aspirant", async () => {
     const create = jest.fn((x: any) => x);
     const save = jest.fn(async (x: any) => x);
     const service = buildService({
-      meetingRepo: { findOne: jest.fn(async () => ({ id: 10, aspirantId: 54 })) },
+      meetingRepo: {
+        findOne: jest.fn(async () => ({ id: 10, aspirantId: 54 })),
+      },
       activityRatingRepo: { findOne: jest.fn(async () => null), create, save },
     });
 
@@ -695,12 +777,23 @@ describe("AspirantsService — rateMeeting()", () => {
   });
 
   it("updates an existing meeting rating (re-rating is allowed)", async () => {
-    const existing: any = { type: "meeting", activityId: 10, voterId: 57, rating: 2 };
+    const existing: any = {
+      type: "meeting",
+      activityId: 10,
+      voterId: 57,
+      rating: 2,
+    };
     const create = jest.fn();
     const save = jest.fn(async (x: any) => x);
     const service = buildService({
-      meetingRepo: { findOne: jest.fn(async () => ({ id: 10, aspirantId: 54 })) },
-      activityRatingRepo: { findOne: jest.fn(async () => existing), create, save },
+      meetingRepo: {
+        findOne: jest.fn(async () => ({ id: 10, aspirantId: 54 })),
+      },
+      activityRatingRepo: {
+        findOne: jest.fn(async () => existing),
+        create,
+        save,
+      },
     });
 
     await service.rateMeeting(10, 57, 5);
@@ -716,7 +809,9 @@ describe("AspirantsService — rateVisit()", () => {
     const service = buildService({
       visitRepo: { findOne: jest.fn(async () => null) },
     });
-    await expect(service.rateVisit(7, 57, 4)).rejects.toThrow(NotFoundException);
+    await expect(service.rateVisit(7, 57, 4)).rejects.toThrow(
+      NotFoundException,
+    );
   });
 
   it("creates a visit rating tied to the visit's aspirant", async () => {
@@ -740,12 +835,21 @@ describe("AspirantsService — rateVisit()", () => {
   });
 
   it("updates an existing visit rating (re-rating is allowed)", async () => {
-    const existing: any = { type: "visit", activityId: 7, voterId: 57, rating: 1 };
+    const existing: any = {
+      type: "visit",
+      activityId: 7,
+      voterId: 57,
+      rating: 1,
+    };
     const create = jest.fn();
     const save = jest.fn(async (x: any) => x);
     const service = buildService({
       visitRepo: { findOne: jest.fn(async () => ({ id: 7, aspirantId: 54 })) },
-      activityRatingRepo: { findOne: jest.fn(async () => existing), create, save },
+      activityRatingRepo: {
+        findOne: jest.fn(async () => existing),
+        create,
+        save,
+      },
     });
 
     await service.rateVisit(7, 57, 3);

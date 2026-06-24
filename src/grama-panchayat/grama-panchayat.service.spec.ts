@@ -19,7 +19,10 @@ function buildService(repo: Record<string, any> = {}): any {
 // calls can chain; the terminal getRawMany()/getRawOne() resolve to the fixed
 // data. Records andWhere calls so tests can assert filters were applied.
 function makeQb(terminal: { rawMany?: any[]; rawOne?: any }) {
-  const calls: { andWhere: any[][]; where: any[][] } = { andWhere: [], where: [] };
+  const calls: { andWhere: any[][]; where: any[][] } = {
+    andWhere: [],
+    where: [],
+  };
   const qb: any = {};
   for (const m of ["select", "addSelect", "orderBy", "groupBy"]) {
     qb[m] = jest.fn(() => qb);
@@ -212,9 +215,7 @@ describe("GramaPanchayatService — create()", () => {
       villageName: "Adagal",
     });
 
-    expect(create).toHaveBeenCalledWith(
-      expect.objectContaining({ srNo: 1 }),
-    );
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ srNo: 1 }));
   });
 });
 

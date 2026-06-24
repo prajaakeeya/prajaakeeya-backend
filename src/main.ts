@@ -1,7 +1,7 @@
 import "./instrument"; // MUST be first — initialises Sentry before anything else
-import { NestFactory } from "@nestjs/core";
+import { NestFactory, Reflector } from "@nestjs/core";
 import { AppModule } from "./app.module";
-import { ValidationPipe } from "@nestjs/common";
+import { ClassSerializerInterceptor, ValidationPipe } from "@nestjs/common";
 import { SwaggerModule, DocumentBuilder } from "@nestjs/swagger";
 import helmet from "helmet";
 import * as express from "express";
@@ -11,13 +11,25 @@ import { MulterExceptionFilter } from "./common/filters/multer-exception.filter"
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  // Security headers. CSP is disabled because this process serves only the
-  // JSON API; Swagger UI (when enabled in non-prod) hosts its own assets and
-  // would break under a default-strict CSP.
+  // Security headers. In production we ship a strict CSP: locking script/object
+  // sources and forbidding framing hardens any HTML this origin ever serves.
+  // CSP stays off in non-prod so the self-hosted Swagger UI assets keep working
+  // (Swagger is disabled entirely in production).
   app.use(
     helmet({
       contentSecurityPolicy:
-        process.env.NODE_ENV === "production" ? undefined : false,
+        process.env.NODE_ENV === "production"
+          ? {
+              useDefaults: false,
+              directives: {
+                defaultSrc: ["'self'"],
+                scriptSrc: ["'self'"],
+                objectSrc: ["'none'"],
+                baseUri: ["'self'"],
+                frameAncestors: ["'none'"],
+              },
+            }
+          : false,
       crossOriginResourcePolicy: { policy: "cross-origin" },
     }),
   );
@@ -43,6 +55,11 @@ async function bootstrap() {
       forbidNonWhitelisted: true,
     }),
   );
+  // Serialize responses through class-transformer so entity-level @Exclude
+  // (e.g. User.passwordHash / passwordSalt / refreshTokenHash) is honoured on
+  // every endpoint that returns an entity — credential material can never leak
+  // by being returned or spread.
+  app.useGlobalInterceptors(new ClassSerializerInterceptor(app.get(Reflector)));
   app.useGlobalFilters(new MulterExceptionFilter());
 
   // CORS: restrict origins based on environment

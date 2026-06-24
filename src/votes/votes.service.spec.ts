@@ -30,9 +30,10 @@ describe("VotesService — castVote()", () => {
 
   function setup(over: Record<string, any> = {}) {
     const repo = {
-      findOne: over.existingVote !== undefined
-        ? jest.fn(async () => over.existingVote)
-        : jest.fn(async () => null),
+      findOne:
+        over.existingVote !== undefined
+          ? jest.fn(async () => over.existingVote)
+          : jest.fn(async () => null),
       create: jest.fn((v: any) => v),
       save: jest.fn(async (v: any) => ({ id: 100, ...v })),
     };
@@ -50,13 +51,17 @@ describe("VotesService — castVote()", () => {
     jest.spyOn(service, "checkVotingWindow").mockResolvedValue(undefined);
     jest
       .spyOn(service, "getActiveVotingWindow")
-      .mockResolvedValue(over.activeWindow === undefined ? { id: 1 } : over.activeWindow);
+      .mockResolvedValue(
+        over.activeWindow === undefined ? { id: 1 } : over.activeWindow,
+      );
     return { service, repo, usersService, aspirantsService };
   }
 
   it("rejects when no voting window is active", async () => {
     const { service } = setup({ activeWindow: null });
-    await expect(service.castVote(userId, dto)).rejects.toThrow(BadRequestException);
+    await expect(service.castVote(userId, dto)).rejects.toThrow(
+      BadRequestException,
+    );
   });
 
   it("rejects a second vote in the same window", async () => {
@@ -68,7 +73,9 @@ describe("VotesService — castVote()", () => {
 
   it("rejects when the aspirant does not exist", async () => {
     const { service } = setup({ aspirant: null });
-    await expect(service.castVote(userId, dto)).rejects.toThrow(NotFoundException);
+    await expect(service.castVote(userId, dto)).rejects.toThrow(
+      NotFoundException,
+    );
   });
 
   it("rejects a vote for a withdrawn aspirant", async () => {
@@ -92,6 +99,8 @@ describe("VotesService — castVote()", () => {
       votingWindowId: 1,
     });
     expect(repo.save).toHaveBeenCalled();
-    expect(saved).toEqual(expect.objectContaining({ aspirantId: 7, userId: 1, votingWindowId: 1 }));
+    expect(saved).toEqual(
+      expect.objectContaining({ aspirantId: 7, userId: 1, votingWindowId: 1 }),
+    );
   });
 });

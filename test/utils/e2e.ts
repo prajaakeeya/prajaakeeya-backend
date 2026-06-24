@@ -31,7 +31,9 @@ export interface E2EOptions {
   providers?: any[];
 }
 
-export async function createE2EApp(opts: E2EOptions): Promise<INestApplication> {
+export async function createE2EApp(
+  opts: E2EOptions,
+): Promise<INestApplication> {
   const moduleRef = await Test.createTestingModule({
     imports: [PassportModule],
     controllers: opts.controllers,

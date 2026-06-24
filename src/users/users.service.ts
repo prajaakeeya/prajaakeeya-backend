@@ -8,7 +8,14 @@ import {
 import { CACHE_MANAGER } from "@nestjs/cache-manager";
 import type { Cache } from "cache-manager";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Repository, DataSource, EntityManager, In } from "typeorm";
+import {
+  Repository,
+  DataSource,
+  EntityManager,
+  In,
+  DeepPartial,
+} from "typeorm";
+import { QueryDeepPartialEntity } from "typeorm/query-builder/QueryPartialEntity";
 import { S3Service } from "../common/services/s3.service";
 import { tokenVersionCacheKey } from "../auth/strategies/jwt.strategy";
 import { User } from "./user.entity";
@@ -90,7 +97,7 @@ export class UsersService {
    * The cache TTL matches the longest JWT lifetime: once every old token
    * has expired naturally, the revocation marker is no longer needed.
    */
-  private async revokeAllSessions(userId: number): Promise<number> {
+  async revokeAllSessions(userId: number): Promise<number> {
     const fresh = await this.repo
       .createQueryBuilder()
       .update(User)
@@ -111,10 +118,31 @@ export class UsersService {
     return repo.findOne({ where: { id } });
   }
 
+  /**
+   * Store (or clear, with null) the hash of a user's current refresh token.
+   * `refreshTokenHash` is a `select: false` column, so this is the only path
+   * that touches it.
+   */
+  async setRefreshTokenHash(
+    userId: number,
+    hash: string | null,
+  ): Promise<void> {
+    await this.repo.update({ id: userId }, { refreshTokenHash: hash });
+  }
+
+  /** Read the stored refresh-token hash (explicitly selected — column is hidden). */
+  async getRefreshTokenHash(userId: number): Promise<string | null> {
+    const row = await this.repo.findOne({
+      where: { id: userId },
+      select: { id: true, refreshTokenHash: true },
+    });
+    return row?.refreshTokenHash ?? null;
+  }
+
   /** Bulk-fetch users by id. Used to avoid N+1 lookup loops. */
   findManyByIds(ids: number[]): Promise<User[]> {
     if (!ids.length) return Promise.resolve([]);
-    return this.repo.findBy({ id: In(ids) as any });
+    return this.repo.findBy({ id: In(ids) });
   }
 
   async getLastInteractionMessage(userId: number): Promise<string | null> {
@@ -198,9 +226,9 @@ export class UsersService {
       const { promisify } = await import("util");
       const scryptAsync = promisify(crypto.scrypt);
       const salt = crypto.randomBytes(16).toString("hex");
-      const hash = (
-        (await scryptAsync(password, salt, 64)) as Buffer
-      ).toString("hex");
+      const hash = ((await scryptAsync(password, salt, 64)) as Buffer).toString(
+        "hex",
+      );
       user.passwordSalt = salt;
       user.passwordHash = hash;
     }
@@ -228,7 +256,7 @@ export class UsersService {
   /** Total registered citizens — voters + aspirants (admins excluded). */
   async countRegistered(): Promise<number> {
     return this.repo.count({
-      where: [{ role: "voter" as any }, { role: "aspirant" as any }],
+      where: [{ role: "voter" }, { role: "aspirant" }],
     });
   }
 
@@ -255,7 +283,7 @@ export class UsersService {
     // load. Only a search filter narrows the result enough to need it separately.
     const totalUsers = search
       ? await this.repo.count({
-          where: [{ role: "voter" as any }, { role: "aspirant" as any }],
+          where: [{ role: "voter" }, { role: "aspirant" }],
         })
       : total;
 
@@ -463,7 +491,7 @@ export class UsersService {
     if (wardIds?.length)
       qb.andWhere("user.wardId IN (:...wardIds)", { wardIds });
 
-    const rows = await qb.getRawMany();
+    const rows = await qb.getRawMany<{ wardId: number; total: string }>();
     return rows.map((row) => ({
       wardId: Number(row.wardId),
       total: Number(row.total),
@@ -482,8 +510,8 @@ export class UsersService {
 
     // Strip credential material before this entity is serialized to a client
     // (this method backs GET /users/me and the admin user-detail view).
-    delete (user as any).passwordHash;
-    delete (user as any).passwordSalt;
+    delete user.passwordHash;
+    delete user.passwordSalt;
 
     return user;
   }
@@ -527,7 +555,7 @@ export class UsersService {
     if (dto.relativeName !== undefined) user.relativeName = dto.relativeName;
     if (dto.epicId !== undefined) user.epicId = dto.epicId;
     if (dto.gender !== undefined) user.gender = dto.gender;
-    if ((dto as any).age !== undefined) user.age = (dto as any).age;
+    if (dto.age !== undefined) user.age = dto.age;
     if (dto.wardId !== undefined) user.wardId = dto.wardId;
     if (dto.role !== undefined) user.role = dto.role;
     if (dto.isBlocked !== undefined) user.isBlocked = dto.isBlocked;
@@ -645,16 +673,12 @@ export class UsersService {
       await manager.delete(Report, { reportedUserId: id });
 
       // Update reports where user is the reporter or resolver (set to null)
-      await manager.update(
-        Report,
-        { reportedById: id },
-        { reportedById: null as any },
-      );
-      await manager.update(
-        Report,
-        { resolvedById: id },
-        { resolvedById: null as any },
-      );
+      await manager.update(Report, { reportedById: id }, {
+        reportedById: null,
+      } as unknown as QueryDeepPartialEntity<Report>);
+      await manager.update(Report, { resolvedById: id }, {
+        resolvedById: null,
+      } as unknown as QueryDeepPartialEntity<Report>);
 
       // Finally, delete the user
       await manager.remove(user);
@@ -697,12 +721,12 @@ export class UsersService {
     type: InteractionType,
     at?: Date,
   ): Promise<{ user: User; message: string }> {
-    const flagCol = {
+    const flagCol: "isChat" | "isMeeting" | "isDirectMeet" | "isPhoneCall" = {
       chat: "isChat",
       meeting: "isMeeting",
       directMeet: "isDirectMeet",
       phoneCall: "isPhoneCall",
-    }[type];
+    }[type] as "isChat" | "isMeeting" | "isDirectMeet" | "isPhoneCall";
 
     const interactionLabel = {
       chat: "Chat",
@@ -730,7 +754,7 @@ export class UsersService {
         aspirantId,
         [flagCol]: true,
         ...(type === "phoneCall" ? { phoneCallAt: at ?? new Date() } : {}),
-      } as any,
+      } as DeepPartial<UserAspirantInteraction>,
       { conflictPaths: ["userId", "aspirantId"] },
     );
 
@@ -751,8 +775,8 @@ export class UsersService {
         .createQueryBuilder("interaction")
         .where("interaction.userId = :userId", { userId })
         .select("COUNT(DISTINCT interaction.aspirantId)", "count")
-        .getRawOne();
-      const count = parseInt(uniqueAspirants.count);
+        .getRawOne<{ count: string }>();
+      const count = parseInt(uniqueAspirants?.count ?? "0");
       message =
         `${interactionLabel} interaction tracked with aspirant ${aspirantLabel}.` +
         (count >= requiredCount
@@ -762,7 +786,7 @@ export class UsersService {
 
     const userPatch: Partial<User> = { lastInteractionMessage: message };
     // The interaction was just recorded above, so voting is enabled.
-    (userPatch as any)[flagCol] = true;
+    userPatch[flagCol] = true;
     await this.repo.update(userId, userPatch);
     Object.assign(user, userPatch);
 
@@ -786,7 +810,7 @@ export class UsersService {
   }
 
   async clearPhone(userId: number) {
-    await this.repo.update(userId, { phone: undefined } as any);
+    await this.repo.update(userId, { phone: undefined });
   }
 
   async hasAnyInteraction(userId: number): Promise<boolean> {
@@ -861,7 +885,7 @@ export class UsersService {
         [userId],
       );
       if (aspirantRows.length > 0) {
-        const aspirantIds = aspirantRows.map((r: any) => r.id);
+        const aspirantIds = (aspirantRows as { id: number }[]).map((r) => r.id);
         // Delete children of aspirant meetings first
         await queryRunner.query(
           `DELETE FROM "meeting_responses" WHERE "meetingId" IN (SELECT "id" FROM "aspirant_meetings" WHERE "aspirantId" = ANY($1))`,
@@ -925,12 +949,6 @@ export class UsersService {
         [userId],
       );
 
-      // OTPs
-      await queryRunner.query(
-        `DELETE FROM "otps" WHERE "email" = $1 OR "phone" = $2`,
-        [user.email, user.phone],
-      );
-
       // Pending aspirant registrations
       await queryRunner.query(
         `DELETE FROM "pending_aspirant_registrations" WHERE "userId" = $1`,
@@ -952,7 +970,7 @@ export class UsersService {
       await queryRunner.rollbackTransaction();
       console.error(
         `[DeleteAccount] Hard delete failed for userId=${userId}:`,
-        (error as any)?.message || error,
+        (error instanceof Error && error.message) || error,
       );
 
       // Hard delete failed — soft delete instead
@@ -963,7 +981,9 @@ export class UsersService {
       await this.repo.save(user);
 
       // Clear phone in aspirant table too
-      await this.aspirantRepo.update({ userId }, { phone: null as any });
+      await this.aspirantRepo.update({ userId }, {
+        phone: null,
+      } as unknown as QueryDeepPartialEntity<Aspirant>);
 
       // Revoke every outstanding session for the soft-deleted user.
       await this.revokeAllSessions(userId).catch(() => undefined);

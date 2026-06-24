@@ -37,14 +37,14 @@ export class UserSignedDocument extends BaseEntity {
   @Column({
     type: "timestamp",
     nullable: true,
-    transformer: dateToEpoch as any,
+    transformer: dateToEpoch,
   })
-  signedAt?: any;
+  signedAt?: number | Date;
 
   @Column({
     type: "timestamp",
     nullable: true,
-    transformer: dateToEpoch as any,
+    transformer: dateToEpoch,
   })
-  verifiedAt?: any;
+  verifiedAt?: number | Date;
 }

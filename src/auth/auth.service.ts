@@ -1,8 +1,11 @@
 import {
   BadRequestException,
+  Inject,
   Injectable,
   UnauthorizedException,
 } from "@nestjs/common";
+import { CACHE_MANAGER } from "@nestjs/cache-manager";
+import type { Cache } from "cache-manager";
 import { JwtService } from "@nestjs/jwt";
 import { ConfigService } from "@nestjs/config";
 import { UsersService } from "../users/users.service";
@@ -16,7 +19,16 @@ import { GramaPanchayatService } from "../grama-panchayat/grama-panchayat.servic
 import { S3Service } from "../common/services/s3.service";
 import { LoginDto } from "./dto/login.dto";
 import { User } from "../users/user.entity";
+import * as crypto from "crypto";
 import axios from "axios";
+
+/** A freshly issued session: short access token + rotating refresh token. */
+export interface SessionResult {
+  user: User;
+  accessToken: string;
+  refreshToken: string;
+  refreshExpiresAt: Date;
+}
 
 @Injectable()
 export class AuthService {
@@ -32,7 +44,14 @@ export class AuthService {
     private readonly assemblyService: AssemblyService,
     private readonly gramaPanchayatService: GramaPanchayatService,
     private readonly configService: ConfigService,
+    @Inject(CACHE_MANAGER) private readonly cache: Cache,
   ) {}
+
+  /** One-time OAuth code: cache key prefix and (short) single-use lifetime. */
+  private readonly oauthCodeTtlMs = 60 * 1000;
+  private oauthCodeKey(code: string): string {
+    return `oauth:code:${code}`;
+  }
 
   /** Build the JWT payload — includes the fields the strategy/guards rely on. */
   private buildJwtPayload(user: User) {
@@ -57,13 +76,160 @@ export class AuthService {
     return secret;
   }
 
-  /** Issue a stateless HMAC-signed CSRF state token for the OAuth round-trip. */
-  issueOAuthState(): string {
+  // ===== Session tokens: short-lived access + rotating refresh =====
+
+  private get accessTtl(): string {
+    return this.configService.get<string>("JWT_ACCESS_EXPIRES_IN") || "15m";
+  }
+  private get refreshTtl(): string {
+    return this.configService.get<string>("JWT_REFRESH_EXPIRES_IN") || "7d";
+  }
+
+  /**
+   * Secret for signing/verifying refresh tokens. Uses JWT_REFRESH_SECRET when
+   * set; otherwise derives a DISTINCT key from JWT_SECRET so access and refresh
+   * tokens never share a signing key — without forcing a new env var into
+   * every deployment.
+   */
+  private refreshSecret(): string {
+    const explicit = this.configService.get<string>("JWT_REFRESH_SECRET");
+    if (explicit) return explicit;
+    return crypto
+      .createHash("sha256")
+      .update(`${this.requireSecret()}:refresh`)
+      .digest("hex");
+  }
+
+  private hashRefreshToken(token: string): string {
+    return crypto.createHash("sha256").update(token).digest("hex");
+  }
+
+  private signAccessToken(user: User): Promise<string> {
+    // Access token uses the default JWT_SECRET (so JwtStrategy validates it as
+    // today) but a tight expiry — the refresh token carries longevity instead.
+    return this.jwtService.signAsync(this.buildJwtPayload(user), {
+      expiresIn: this.accessTtl,
+    });
+  }
+
+  private async signRefreshToken(
+    userId: number,
+  ): Promise<{ token: string; expiresAt: Date }> {
+    const token = await this.jwtService.signAsync(
+      { sub: userId, type: "refresh", jti: crypto.randomUUID() },
+      { secret: this.refreshSecret(), expiresIn: this.refreshTtl },
+    );
+    const decoded = this.jwtService.decode(token) as { exp: number };
+    return { token, expiresAt: new Date(decoded.exp * 1000) };
+  }
+
+  /**
+   * Issue a fresh session: a short-lived access token + a new refresh token
+   * whose hash replaces any previous one (single active session). Calling this
+   * during /auth/refresh is also what ROTATES the refresh token.
+   */
+  async issueSession(user: User): Promise<SessionResult> {
+    const accessToken = await this.signAccessToken(user);
+    const { token: refreshToken, expiresAt } = await this.signRefreshToken(
+      user.id,
+    );
+    await this.usersService.setRefreshTokenHash(
+      user.id,
+      this.hashRefreshToken(refreshToken),
+    );
+    return { user, accessToken, refreshToken, refreshExpiresAt: expiresAt };
+  }
+
+  /**
+   * Redeem a refresh token: verify signature + type, confirm it matches the
+   * stored hash, then ROTATE (issue a new pair). A syntactically valid but
+   * superseded/forged token whose hash doesn't match triggers reuse-detection:
+   * the session is revoked so neither party can continue.
+   */
+  async rotateRefresh(refreshToken: string): Promise<SessionResult> {
+    let payload: { sub?: number; type?: string };
+    try {
+      payload = await this.jwtService.verifyAsync(refreshToken, {
+        secret: this.refreshSecret(),
+        algorithms: ["HS256"],
+      });
+    } catch {
+      throw new UnauthorizedException("Invalid or expired refresh token");
+    }
+    if (payload.type !== "refresh" || !payload.sub) {
+      throw new UnauthorizedException("Invalid refresh token");
+    }
+
+    const user = await this.usersService.findById(payload.sub);
+    const storedHash = await this.usersService.getRefreshTokenHash(payload.sub);
+    if (!user || !storedHash) {
+      throw new UnauthorizedException("Session expired");
+    }
+    if (user.isBlocked) {
+      throw new UnauthorizedException("User is blocked");
+    }
+
+    const presented = Buffer.from(this.hashRefreshToken(refreshToken));
+    const stored = Buffer.from(storedHash);
+    if (
+      presented.length !== stored.length ||
+      !crypto.timingSafeEqual(presented, stored)
+    ) {
+      // Reuse detection — revoke the whole session.
+      await this.usersService.setRefreshTokenHash(payload.sub, null);
+      throw new UnauthorizedException("Refresh token revoked");
+    }
+
+    return this.issueSession(user);
+  }
+
+  /** Revoke the user's refresh session (logout / block). */
+  async revokeSession(userId: number): Promise<void> {
+    await this.usersService.setRefreshTokenHash(userId, null);
+    // Also bump tokenVersion so the short-lived access token is rejected
+    // immediately (the strategy reads the new version from cache) rather than
+    // surviving until its ~15-min TTL. Best-effort — clearing the refresh hash
+    // already stops the session from being renewed.
+    await this.usersService.revokeAllSessions(userId).catch(() => undefined);
+  }
+
+  /**
+   * Verify a refresh token's signature + type and return its subject, or null
+   * if missing/invalid/forged/expired. Used by logout: the refresh sub must be
+   * VERIFIED (not just decoded) before it drives revocation, otherwise an
+   * unauthenticated caller could forge `{ sub: N }` and force a session bump /
+   * DB write for any user id.
+   */
+  async verifyRefreshSub(refreshToken: string): Promise<number | null> {
+    try {
+      const payload = await this.jwtService.verifyAsync<{
+        sub?: number;
+        type?: string;
+      }>(refreshToken, {
+        secret: this.refreshSecret(),
+        algorithms: ["HS256"],
+      });
+      if (payload.type !== "refresh" || !payload.sub) return null;
+      return payload.sub;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Issue an HMAC-signed CSRF state token for the OAuth round-trip.
+   *
+   * The frontend's own random state (`clientState`) is embedded and signed so
+   * the backend can both (a) verify integrity + freshness on the callback and
+   * (b) echo the unchanged client state back, which the frontend compares
+   * against the value it stashed in sessionStorage (double-submit CSRF). The
+   * client state is hex (no dots), so dot-splitting stays unambiguous.
+   */
+  issueOAuthState(clientState: string): string {
     const secret = this.requireSecret();
-    const crypto = require("crypto") as typeof import("crypto");
     const ts = Date.now().toString(36);
     const nonce = crypto.randomBytes(12).toString("hex");
-    const payload = `${ts}.${nonce}`;
+    const payload = `${clientState}.${ts}.${nonce}`;
     const sig = crypto
       .createHmac("sha256", secret)
       .update(payload)
@@ -71,29 +237,96 @@ export class AuthService {
     return `${payload}.${sig}`;
   }
 
-  /** Verify an OAuth state token: signature must match and timestamp ≤10 min. */
-  verifyOAuthState(state: string): boolean {
+  /**
+   * Verify an OAuth state token: signature must match and timestamp ≤10 min.
+   * Returns the embedded client state when valid, otherwise `null`.
+   */
+  verifyOAuthState(state: string): string | null {
     const secret = this.requireSecret();
-    const crypto = require("crypto") as typeof import("crypto");
     const parts = state.split(".");
-    if (parts.length !== 3) return false;
-    const [ts, nonce, sig] = parts;
+    if (parts.length !== 4) return null;
+    const [clientState, ts, nonce, sig] = parts;
     const expected = crypto
       .createHmac("sha256", secret)
-      .update(`${ts}.${nonce}`)
+      .update(`${clientState}.${ts}.${nonce}`)
       .digest("hex");
     if (
       sig.length !== expected.length ||
       !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))
     ) {
-      return false;
+      return null;
     }
     const issuedAt = parseInt(ts, 36);
-    if (!Number.isFinite(issuedAt)) return false;
-    return Date.now() - issuedAt < 10 * 60 * 1000;
+    if (!Number.isFinite(issuedAt)) return null;
+    if (Date.now() - issuedAt >= 10 * 60 * 1000) return null;
+    return clientState;
+  }
+
+  /**
+   * Mint a single-use, short-lived authorization code bound to a freshly
+   * issued JWT and the client's OAuth state. Stored server-side (cache) so the
+   * JWT never travels in a redirect URL; redeemed exactly once via
+   * {@link exchangeOneTimeCode}.
+   */
+  async createOneTimeCode(token: string, clientState: string): Promise<string> {
+    const code = crypto.randomBytes(32).toString("hex");
+    await this.cache.set(
+      this.oauthCodeKey(code),
+      JSON.stringify({ token, state: clientState }),
+      this.oauthCodeTtlMs,
+    );
+    return code;
+  }
+
+  /**
+   * Redeem a one-time OAuth code. Consumes the code (single use), re-validates
+   * the client state, and returns the bound JWT plus the resolved user.
+   */
+  async exchangeOneTimeCode(
+    code: string,
+    state: string,
+  ): Promise<
+    SessionResult & { profile: Awaited<ReturnType<AuthService["profile"]>> }
+  > {
+    if (!code) {
+      throw new BadRequestException("Authorization code is required");
+    }
+    const key = this.oauthCodeKey(code);
+    const raw = await this.cache.get<string>(key);
+    if (!raw) {
+      throw new UnauthorizedException("Invalid or expired authorization code");
+    }
+    // Consume immediately so a replayed code cannot be redeemed twice.
+    await this.cache.del(key);
+    const stored = JSON.parse(raw) as { token: string; state: string };
+    if (!state || state !== stored.state) {
+      throw new UnauthorizedException("Invalid OAuth state");
+    }
+    const payload = this.jwtService.decode(stored.token) as { sub?: number };
+    const userEntity = payload?.sub
+      ? await this.usersService.findById(payload.sub)
+      : null;
+    if (!userEntity) {
+      throw new UnauthorizedException("User not found for authorization code");
+    }
+    // Mint a real session (access + rotating refresh) at exchange time.
+    const session = await this.issueSession(userEntity);
+    const profile = await this.profile(userEntity.id);
+    return { ...session, profile };
   }
 
   // ===== Google OAuth 2.0 Authorization Code Flow =====
+
+  /** The frontend URL the OAuth callback redirects back to. */
+  getFrontendRedirectUri(): string {
+    const frontendRedirect = this.configService.get<string>(
+      "GOOGLE_FRONTEND_REDIRECT_URI",
+    );
+    if (!frontendRedirect) {
+      throw new BadRequestException("Google OAuth not configured");
+    }
+    return frontendRedirect;
+  }
 
   /**
    * Dev-only bypass for the real Google OAuth token exchange. Hard-gated to
@@ -112,7 +345,7 @@ export class AuthService {
     const lastNames = ["Rao", "Kumar", "Nair", "Gowda", "Reddy", "Iyer", "Shetty", "Patil"];
     const first = firstNames[Math.floor(Math.random() * firstNames.length)];
     const last = lastNames[Math.floor(Math.random() * lastNames.length)];
-    const suffix = require("crypto").randomBytes(4).toString("hex");
+    const suffix = crypto.randomBytes(4).toString("hex");
     return {
       email: `${first.toLowerCase()}.${last.toLowerCase()}.${suffix}@mock.test`,
       name: `${first} ${last}`,
@@ -122,11 +355,11 @@ export class AuthService {
 
   /**
    * Resolve the mock identity for this browser: reuse the one stored in the
-   * `mock_identity` cookie (so a relogin after JWT expiry comes back as the
-   * same fake person), unless none exists yet or a fresh one was explicitly
-   * requested (`/auth/google?fresh=1`) — e.g. for testing multiple accounts.
-   * Returns the profile plus the (plain, not pre-encoded — res.cookie()
-   * handles that) cookie value the controller should set.
+   * `mock_identity` cookie (so a relogin after session expiry comes back as
+   * the same fake person), unless none exists yet or a fresh one was
+   * explicitly requested (`/auth/google?fresh=1`) — e.g. for testing
+   * multiple accounts. Returns the profile plus the (plain, not
+   * pre-encoded — res.cookie() handles that) cookie value to set.
    */
   private resolveMockProfile(
     existingCookieJson?: string,
@@ -161,7 +394,7 @@ export class AuthService {
     if (this.isMockOAuthEnabled()) {
       // Skip Google entirely — redirect straight back to our own callback
       // with a synthetic code, so the rest of the pipeline (state
-      // verification, user creation, JWT issuance) is exercised unchanged.
+      // verification, user creation, session issuance) is exercised unchanged.
       const params = new URLSearchParams({ code: "mock" });
       if (state) params.set("state", state);
       if (fresh) params.set("fresh", "1");
@@ -192,7 +425,7 @@ export class AuthService {
   ): Promise<{
     token: string;
     user: User;
-    redirectUrl: string;
+    errorRedirectUrl?: string;
     mockIdentityCookie?: string;
   }> {
     if (!code) {
@@ -208,14 +441,17 @@ export class AuthService {
 
     const mockEnabled = this.isMockOAuthEnabled();
 
-    let profile: any;
+    let profile: {
+      email?: string;
+      email_verified?: boolean;
+      name?: string;
+    };
     let mockIdentityCookieToSet: string | undefined;
+
     if (mockEnabled) {
       // Dev-only bypass — see isMockOAuthEnabled(). Skips Google's token
       // exchange and userinfo lookup, but every step after this (find/create
-      // user, JWT issuance, redirect) is identical to the real flow. Reuses
-      // the same fake identity across relogins (e.g. after JWT expiry) via
-      // the mock_identity cookie, unless a fresh one was requested.
+      // user, session issuance, redirect) is identical to the real flow.
       const resolved = this.resolveMockProfile(
         mockIdentityCookie,
         forceFreshMockIdentity,
@@ -247,10 +483,13 @@ export class AuthService {
             timeout: 10000,
           },
         );
-      } catch (error: any) {
+      } catch (error: unknown) {
+        const description = axios.isAxiosError(error)
+          ? (error.response?.data as { error_description?: string } | undefined)
+              ?.error_description
+          : undefined;
         throw new UnauthorizedException(
-          error.response?.data?.error_description ||
-            "Failed to exchange authorization code",
+          description || "Failed to exchange authorization code",
         );
       }
 
@@ -261,15 +500,16 @@ export class AuthService {
 
       // 2. Fetch user profile
       try {
-        const profileResponse = await axios.get(
-          "https://www.googleapis.com/oauth2/v3/userinfo",
-          {
-            headers: { Authorization: `Bearer ${accessToken}` },
-            timeout: 10000,
-          },
-        );
+        const profileResponse = await axios.get<{
+          email?: string;
+          email_verified?: boolean;
+          name?: string;
+        }>("https://www.googleapis.com/oauth2/v3/userinfo", {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          timeout: 10000,
+        });
         profile = profileResponse.data;
-      } catch (error: any) {
+      } catch {
         throw new UnauthorizedException("Failed to fetch Google user profile");
       }
     }
@@ -287,34 +527,40 @@ export class AuthService {
 
     if (user && user.isBlocked && user.name !== "Deleted User") {
       const sep = frontendRedirect.includes("?") ? "&" : "?";
-      const errorMsg =
-        "Your account has been blocked. Please contact support.";
-      const redirectUrl = `${frontendRedirect}${sep}error=${encodeURIComponent(errorMsg)}`;
-      return { token: "", user, redirectUrl, mockIdentityCookie: mockIdentityCookieToSet };
+      const errorMsg = "Your account has been blocked. Please contact support.";
+      const errorRedirectUrl = `${frontendRedirect}${sep}error=${encodeURIComponent(errorMsg)}`;
+      return { token: "", user, errorRedirectUrl, mockIdentityCookie: mockIdentityCookieToSet };
     }
 
-    if (user && (user.isSelfDeleted || (user.isBlocked && user.name === "Deleted User"))) {
+    if (
+      user &&
+      (user.isSelfDeleted || (user.isBlocked && user.name === "Deleted User"))
+    ) {
       const reactivated = await this.usersService.reactivateAccount(email, {
         name: profile.name,
         role: "voter",
-      } as any);
+      });
       if (reactivated) user = reactivated;
     } else if (!user) {
       user = await this.usersService.create({
         email,
         name: profile.name || email.split("@")[0],
         role: "voter",
-      } as any);
+      });
     }
 
-    // 4. Generate JWT
-    const jwt = await this.jwtService.signAsync(this.buildJwtPayload(user!));
+    // 4. Generate JWT. The caller mints a one-time code bound to this token and
+    //    redirects with the code — the JWT itself never enters the URL (a URL
+    //    token leaks into server/proxy access logs, browser history and the
+    //    Referer header). The code is redeemed via POST /auth/google/exchange,
+    //    which sets the httpOnly session cookie. This token is only an identity
+    //    carrier consumed within the 60s one-time-code window, so cap it at 5m
+    //    instead of inheriting the 24h module default.
+    const jwt = await this.jwtService.signAsync(this.buildJwtPayload(user!), {
+      expiresIn: "5m",
+    });
 
-    // 5. Build redirect URL back to the app with token
-    const sep = frontendRedirect.includes("?") ? "&" : "?";
-    const redirectUrl = `${frontendRedirect}${sep}token=${encodeURIComponent(jwt)}`;
-
-    return { token: jwt, user: user!, redirectUrl, mockIdentityCookie: mockIdentityCookieToSet };
+    return { token: jwt, user: user!, mockIdentityCookie: mockIdentityCookieToSet };
   }
 
   async adminLogin(loginDto: LoginDto) {
@@ -339,7 +585,11 @@ export class AuthService {
     const { promisify } = await import("util");
     const scryptAsync = promisify(crypto.scrypt);
     const hash = (
-      (await scryptAsync(loginDto.password, existing.passwordSalt, 64)) as Buffer
+      (await scryptAsync(
+        loginDto.password,
+        existing.passwordSalt,
+        64,
+      )) as Buffer
     ).toString("hex");
     // Constant-time comparison so login latency can't leak how many leading
     // bytes of the hash matched.
@@ -352,8 +602,7 @@ export class AuthService {
       throw new UnauthorizedException("Invalid admin credentials");
     }
 
-    const payload = this.buildJwtPayload(existing);
-    return { token: await this.jwtService.signAsync(payload), user: existing };
+    return this.issueSession(existing);
   }
 
   /**
@@ -380,7 +629,8 @@ export class AuthService {
     const aspirantBucketId = (type: string) =>
       aspirantElectionType === type ? (aspirant?.constituencyId ?? null) : null;
 
-    const lokSabhaId = user.lokSabhaConstituencyId ?? aspirantBucketId("lok_sabha");
+    const lokSabhaId =
+      user.lokSabhaConstituencyId ?? aspirantBucketId("lok_sabha");
     const stateAssemblyId =
       user.stateAssemblyConstituencyId ?? aspirantBucketId("state_assembly");
     const wardId =
@@ -461,20 +711,21 @@ export class AuthService {
     // Resolve the aspirant's election type once so the saved-constituency
     // helper can use the aspirant record as a fallback when the user's
     // own constituency IDs are unset.
-    let aspirantElectionType: string | null = null;
-    if (aspirant?.electionId) {
-      const election = await this.electionsService
-        .findById(aspirant.electionId)
-        .catch(() => null);
-      aspirantElectionType = election?.type ?? null;
-    }
+    // Fetch the aspirant's election ONCE and reuse it in the `if (aspirant)`
+    // block below — avoids a duplicate findById on the same id.
+    const aspirantElection = aspirant?.electionId
+      ? await this.electionsService
+          .findById(aspirant.electionId)
+          .catch(() => null)
+      : null;
+    const aspirantElectionType: string | null = aspirantElection?.type ?? null;
     const savedConstituencies = await this.resolveSavedConstituencies(
       user,
       aspirant,
       aspirantElectionType,
     );
 
-    const result: any = { ...user, ...savedConstituencies };
+    const result: Record<string, unknown> = { ...user, ...savedConstituencies };
 
     // The four raw *ConstituencyId fields are redundant once the resolved
     // *Constituency objects are present (FE can read e.g.
@@ -510,15 +761,12 @@ export class AuthService {
       result.allowWhatsapp = aspirant.allowWhatsapp;
       result.allowChat = aspirant.allowChat;
 
-      // Resolve election/constituency/aspirant-ward in parallel.
-      const [election, aspirantWard] = await Promise.all([
-        aspirant.electionId
-          ? this.electionsService.findById(aspirant.electionId).catch(() => null)
-          : Promise.resolve(null),
-        aspirant.wardId
-          ? this.wardsService.findOne(aspirant.wardId).catch(() => null)
-          : Promise.resolve(null),
-      ]);
+      // Reuse the election fetched above (no second findById); only the
+      // aspirant's ward still needs loading.
+      const election = aspirantElection;
+      const aspirantWard = aspirant.wardId
+        ? await this.wardsService.findOne(aspirant.wardId).catch(() => null)
+        : null;
 
       if (election) {
         result.electionName = election.name;

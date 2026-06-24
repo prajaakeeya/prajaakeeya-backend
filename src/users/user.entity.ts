@@ -1,4 +1,5 @@
 import { Column, Entity, ManyToOne } from "typeorm";
+import { Exclude } from "class-transformer";
 import { BaseEntity } from "../common/base.entity";
 import { Ward } from "../wards/ward.entity";
 
@@ -107,9 +108,16 @@ export class User extends BaseEntity {
   @Column({ name: "last_interaction_message", type: "text", nullable: true })
   lastInteractionMessage?: string;
 
+  // @Exclude → stripped by the global ClassSerializerInterceptor whenever a
+  // User entity is serialized, so credential material can never leak by being
+  // returned (or spread) from any endpoint. The manual `delete` calls in
+  // profile()/getUserById() remain as redundant safety nets for plain-object
+  // responses that aren't class instances.
+  @Exclude()
   @Column({ name: "password_hash", type: "text", nullable: true })
   passwordHash?: string;
 
+  @Exclude()
   @Column({
     name: "password_salt",
     type: "varchar",
@@ -145,4 +153,16 @@ export class User extends BaseEntity {
   // Bumped on logout/block/password-change to invalidate outstanding JWTs.
   @Column({ name: "token_version", type: "int", default: 0 })
   tokenVersion!: number;
+
+  // SHA-256 hash of the user's CURRENT refresh token (single active session).
+  // Rotated on every refresh; cleared on logout/revoke. `select: false` so it
+  // is never loaded or serialized unless a query explicitly asks for it.
+  @Exclude()
+  @Column({
+    name: "refresh_token_hash",
+    type: "text",
+    nullable: true,
+    select: false,
+  })
+  refreshTokenHash?: string | null;
 }

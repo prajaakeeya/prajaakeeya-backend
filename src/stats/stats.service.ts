@@ -26,7 +26,7 @@ export class StatsService {
   /** Public — total registered citizens (voters + aspirants; admins excluded). */
   async countCitizens(): Promise<{ citizens: number }> {
     const citizens = await this.userRepo.count({
-      where: [{ role: "voter" as any }, { role: "aspirant" as any }],
+      where: [{ role: "voter" }, { role: "aspirant" }],
     });
     return { citizens };
   }

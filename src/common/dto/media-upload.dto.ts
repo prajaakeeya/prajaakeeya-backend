@@ -11,34 +11,10 @@ import { Type } from "class-transformer";
 export class UploadAspirantDocumentDto {
   @ApiProperty({
     description: "Type of document",
-    enum: [
-      "sop",
-      "sop_kannada",
-      "agreement",
-      "property_declaration",
-      "code_of_conduct",
-      "resume",
-      "epic_card",
-      "epic_card_back",
-      "address_proof",
-      "recent_photo",
-      "selfie",
-    ],
+    enum: ["sop", "recent_photo", "selfie"],
     example: "sop",
   })
-  @IsEnum([
-    "sop",
-    "sop_kannada",
-    "agreement",
-    "property_declaration",
-    "code_of_conduct",
-    "resume",
-    "epic_card",
-    "epic_card_back",
-    "address_proof",
-    "recent_photo",
-    "selfie",
-  ])
+  @IsEnum(["sop", "recent_photo", "selfie"])
   @IsNotEmpty()
   documentType!: string;
 }

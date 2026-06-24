@@ -14,6 +14,10 @@ import { AssemblyService } from "../geography/assembly.service";
 import { MunicipalityService } from "../geography/municipality.service";
 import { WardsService } from "../wards/wards.service";
 import { GramaPanchayatService } from "../grama-panchayat/grama-panchayat.service";
+import { Parliamentary } from "../geography/parliamentary.entity";
+import { Assembly } from "../geography/assembly.entity";
+import { Ward } from "../wards/ward.entity";
+import { GramaPanchayat } from "../grama-panchayat/grama-panchayat.entity";
 
 @Injectable()
 export class ElectionsService implements OnModuleInit {
@@ -117,7 +121,7 @@ export class ElectionsService implements OnModuleInit {
   ) {
     const election = await this.findByType(type);
 
-    let constituencies: any[];
+    let constituencies: Array<Parliamentary | Assembly | Ward | GramaPanchayat>;
     switch (type) {
       case "lok_sabha":
         constituencies = await this.parliamentaryService.findAll();

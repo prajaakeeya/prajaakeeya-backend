@@ -1,7 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import {
   S3Client,
-  PutObjectCommand,
   DeleteObjectCommand,
   GetObjectCommand,
 } from "@aws-sdk/client-s3";

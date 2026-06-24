@@ -15,7 +15,7 @@ export class GeographyService {
     private readonly stateRepo: Repository<State>,
   ) {}
 
-  private readonly inflight = new Map<string, Promise<any>>();
+  private readonly inflight = new Map<string, Promise<unknown>>();
   private singleFlight<T>(key: string, fn: () => Promise<T>): Promise<T> {
     const hit = this.inflight.get(key) as Promise<T> | undefined;
     if (hit) return hit;

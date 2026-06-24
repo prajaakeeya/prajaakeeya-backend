@@ -76,7 +76,9 @@ describe("ElectionsService — onModuleInit() seeding", () => {
       // Return the GBA-scoped municipal row for every lookup; other types are
       // irrelevant to this assertion since they have no scope to migrate.
       findOne: jest.fn(async ({ where }: any) =>
-        where.type === "municipal_corporation" ? muni : { id: 9, type: where.type },
+        where.type === "municipal_corporation"
+          ? muni
+          : { id: 9, type: where.type },
       ),
       create: jest.fn((v: any) => v),
       save: jest.fn(async (v: any) => v),
@@ -341,8 +343,8 @@ describe("ElectionsService — getConstituencies() routing by type", () => {
     const repo = { findOne: jest.fn(async () => null) };
     const service = buildService({ repo });
 
-    await expect(
-      service.getConstituencies("lok_sabha" as any),
-    ).rejects.toThrow(NotFoundException);
+    await expect(service.getConstituencies("lok_sabha" as any)).rejects.toThrow(
+      NotFoundException,
+    );
   });
 });

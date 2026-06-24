@@ -20,7 +20,10 @@ import {
 import { Observable, interval, map, merge } from "rxjs";
 import { JwtAuthGuard } from "../common/guards/jwt-auth.guard";
 import { SseJwtAuthGuard } from "../common/guards/sse-jwt-auth.guard";
-import { CurrentUser } from "../common/decorators/current-user.decorator";
+import {
+  CurrentUser,
+  AuthUser,
+} from "../common/decorators/current-user.decorator";
 import { AspirantChatService } from "./aspirant-chat.service";
 import { ChatEventsService } from "./chat-events.service";
 import { CreateAspirantMessageDto } from "./dto/create-aspirant-message.dto";
@@ -69,7 +72,7 @@ export class AspirantChatController {
   })
   @ApiResponse({ status: 201, description: "Message posted" })
   postMessage(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Param("aspirantId") aspirantId: string,
     @Body() dto: CreateAspirantMessageDto,
   ) {
@@ -111,7 +114,7 @@ export class AspirantChatController {
     example: 10,
   })
   deleteMessage(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Param("messageId") messageId: string,
   ) {
     return this.chatService.deleteMessage(Number(messageId), user.id);

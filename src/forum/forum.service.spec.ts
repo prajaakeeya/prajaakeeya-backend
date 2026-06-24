@@ -36,7 +36,12 @@ describe("ForumService — createMessage()", () => {
       wardId: 3,
     });
     expect(result).toEqual(
-      expect.objectContaining({ id: 42, content: "Hello ward", userId: 7, wardId: 3 }),
+      expect.objectContaining({
+        id: 42,
+        content: "Hello ward",
+        userId: 7,
+        wardId: 3,
+      }),
     );
   });
 });
@@ -75,7 +80,12 @@ describe("ForumService — getWardMessages()", () => {
       take: 10,
     });
     // totalPages = ceil(25 / 10) = 3
-    expect(result.meta).toEqual({ total: 25, page: 3, limit: 10, totalPages: 3 });
+    expect(result.meta).toEqual({
+      total: 25,
+      page: 3,
+      limit: 10,
+      totalPages: 3,
+    });
     expect(result.data).toEqual([]);
   });
 
@@ -85,7 +95,12 @@ describe("ForumService — getWardMessages()", () => {
 
     const result = await service.getWardMessages(1, {});
 
-    expect(result.meta).toEqual({ total: 0, page: 1, limit: 50, totalPages: 0 });
+    expect(result.meta).toEqual({
+      total: 0,
+      page: 1,
+      limit: 50,
+      totalPages: 0,
+    });
   });
 });
 
@@ -96,7 +111,9 @@ describe("ForumService — deleteMessage()", () => {
       messageRepo: { findOne: jest.fn(async () => null), remove },
     });
 
-    await expect(service.deleteMessage(123, 7)).rejects.toThrow(NotFoundException);
+    await expect(service.deleteMessage(123, 7)).rejects.toThrow(
+      NotFoundException,
+    );
     expect(remove).not.toHaveBeenCalled();
   });
 
@@ -109,7 +126,9 @@ describe("ForumService — deleteMessage()", () => {
       },
     });
 
-    await expect(service.deleteMessage(5, 7)).rejects.toThrow(ForbiddenException);
+    await expect(service.deleteMessage(5, 7)).rejects.toThrow(
+      ForbiddenException,
+    );
     expect(remove).not.toHaveBeenCalled();
   });
 

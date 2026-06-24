@@ -8,7 +8,8 @@ import { GramaPanchayatController } from "./grama-panchayat.controller";
 describe("GramaPanchayatModule", () => {
   it("should define GramaPanchayatService as a provider", () => {
     const providers =
-      Reflect.getMetadata(MODULE_METADATA.PROVIDERS, GramaPanchayatModule) ?? [];
+      Reflect.getMetadata(MODULE_METADATA.PROVIDERS, GramaPanchayatModule) ??
+      [];
 
     expect(providers).toContain(GramaPanchayatService);
   });

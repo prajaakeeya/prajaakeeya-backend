@@ -1,6 +1,7 @@
 import { Column, Entity, ManyToOne, OneToMany } from "typeorm";
 import { BaseEntity } from "../common/base.entity";
 import { Aspirant } from "./aspirant.entity";
+import type { VisitResponse } from "./visit-response.entity";
 
 @Entity("aspirant_visits")
 export class AspirantVisit extends BaseEntity {
@@ -39,5 +40,5 @@ export class AspirantVisit extends BaseEntity {
   reminderStartSent!: boolean;
 
   @OneToMany("VisitResponse", "visit")
-  responses?: any[];
+  responses?: VisitResponse[];
 }

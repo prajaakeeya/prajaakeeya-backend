@@ -102,12 +102,14 @@ export class NotificationsService {
     constituencyId: number,
     excludeUserId?: number,
   ): Promise<number[]> {
-    const column = ({
-      lok_sabha: "lok_sabha_constituency_id",
-      state_assembly: "state_assembly_constituency_id",
-      municipal_corporation: "municipal_corporation_constituency_id",
-      gram_panchayat: "gram_panchayat_constituency_id",
-    } as Record<ElectionType, string>)[electionType];
+    const column = (
+      {
+        lok_sabha: "lok_sabha_constituency_id",
+        state_assembly: "state_assembly_constituency_id",
+        municipal_corporation: "municipal_corporation_constituency_id",
+        gram_panchayat: "gram_panchayat_constituency_id",
+      } as Record<ElectionType, string>
+    )[electionType];
     if (!column) return [];
 
     const qb = this.repo.manager
@@ -134,7 +136,9 @@ export class NotificationsService {
     let created = 0;
     for (let i = 0; i < userIds.length; i += CHUNK) {
       const slice = userIds.slice(i, i + CHUNK);
-      const rows = slice.map((userId) => this.repo.create({ ...template, userId }));
+      const rows = slice.map((userId) =>
+        this.repo.create({ ...template, userId }),
+      );
       await this.repo.save(rows);
       created += rows.length;
     }
@@ -167,12 +171,18 @@ export class NotificationsService {
       case "chat_message":
         return aspirantId ? `/user/chat/${aspirantId}` : "/user/aspirantslist";
       case "voting_window": {
-        const name = (t.metadata as { electionName?: string } | null)?.electionName;
+        const name = (t.metadata as { electionName?: string } | null)
+          ?.electionName;
         const slug = name
-          ? name.replace(/\(.*?\)/g, "").trim().toLowerCase().replace(/\s+/g, "_") ||
-            undefined
+          ? name
+              .replace(/\(.*?\)/g, "")
+              .trim()
+              .toLowerCase()
+              .replace(/\s+/g, "_") || undefined
           : undefined;
-        return slug ? `/user/aspirantslist?type=${slug}` : "/user/aspirantslist";
+        return slug
+          ? `/user/aspirantslist?type=${slug}`
+          : "/user/aspirantslist";
       }
       case "aspirant_meeting":
       case "aspirant_visit":
@@ -182,7 +192,8 @@ export class NotificationsService {
       case "visit_reminder":
       case "visit_started": {
         const params = new URLSearchParams();
-        if (t.electionId != null) params.set("electionId", String(t.electionId));
+        if (t.electionId != null)
+          params.set("electionId", String(t.electionId));
         if (aspirantId != null) params.set("aspirantId", String(aspirantId));
         const qs = params.toString();
         return qs ? `/user/aspirantslist?${qs}` : "/user/aspirantslist";
@@ -250,7 +261,9 @@ export class NotificationsService {
    */
   async notifyAspirantMeeting(
     aspirant: Aspirant,
-    meeting: AspirantMeeting | { id?: number; title?: string; startTime?: number },
+    meeting:
+      | AspirantMeeting
+      | { id?: number; title?: string; startTime?: number },
     context: ConstituencyContext,
   ) {
     try {
@@ -465,6 +478,13 @@ export class NotificationsService {
         .andWhere("u.is_self_deleted = false")
         .andWhere("u.id != :senderId", { senderId: args.senderId });
 
+      // Recipients = the distinct users who have posted in THIS aspirant's chat
+      // (the subquery), PLUS the aspirant's own user account. The OR-branch adds
+      // the aspirant even if they have not posted a message yet, so they're
+      // still notified of replies; it stays INSIDE the same outer u.* predicate,
+      // so the is_blocked / is_self_deleted / != sender filters apply to the
+      // aspirant too. When the aspirant has no user account (or is the sender),
+      // we fall back to just the chat-participants subquery.
       if (args.aspirantUserId && args.aspirantUserId !== args.senderId) {
         qb.andWhere(
           `(u.id = :aspirantUserId OR u.id IN (
@@ -567,7 +587,7 @@ export class NotificationsService {
   async notifyAspirantEvent(
     aspirant: Aspirant,
     context: ConstituencyContext,
-    event: { title: string; body: string; metadata?: Record<string, any> },
+    event: { title: string; body: string; metadata?: Record<string, unknown> },
   ) {
     try {
       if (!aspirant.electionId || !aspirant.constituencyId) {

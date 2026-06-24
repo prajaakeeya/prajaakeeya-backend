@@ -17,7 +17,10 @@ import {
   ApiParam,
 } from "@nestjs/swagger";
 import { JwtAuthGuard } from "../common/guards/jwt-auth.guard";
-import { CurrentUser } from "../common/decorators/current-user.decorator";
+import {
+  CurrentUser,
+  AuthUser,
+} from "../common/decorators/current-user.decorator";
 import { ForumService } from "./forum.service";
 import { CreateMessageDto } from "./dto/create-message.dto";
 import { GetMessagesDto } from "./dto/get-messages.dto";
@@ -45,7 +48,7 @@ export class ForumController {
     description: "User does not belong to this ward",
   })
   async postMessage(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Param("wardId") wardId: string,
     @Body() dto: CreateMessageDto,
   ) {
@@ -93,7 +96,7 @@ export class ForumController {
   })
   @ApiResponse({ status: 404, description: "Message not found" })
   async deleteMessage(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Param("messageId") messageId: string,
   ) {
     return this.forumService.deleteMessage(Number(messageId), user.id);

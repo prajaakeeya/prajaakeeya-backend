@@ -57,7 +57,7 @@ export class Notification extends BaseEntity {
   visitId?: number | null;
 
   @Column({ type: "jsonb", nullable: true })
-  metadata?: Record<string, any> | null;
+  metadata?: Record<string, unknown> | null;
 
   @Column({ name: "is_read", type: "boolean", default: false })
   isRead!: boolean;

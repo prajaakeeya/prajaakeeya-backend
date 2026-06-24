@@ -17,7 +17,10 @@ import {
   ApiQuery,
 } from "@nestjs/swagger";
 import { JwtAuthGuard } from "../common/guards/jwt-auth.guard";
-import { CurrentUser } from "../common/decorators/current-user.decorator";
+import {
+  CurrentUser,
+  AuthUser,
+} from "../common/decorators/current-user.decorator";
 import { Public } from "../common/decorators/public.decorator";
 import { AspirantDiscussionService } from "./aspirant-discussion.service";
 import { CreateAspirantDiscussionMessageDto } from "./dto/create-aspirant-discussion-message.dto";
@@ -44,7 +47,7 @@ export class AspirantDiscussionController {
   @ApiResponse({ status: 403, description: "Only aspirants can post messages" })
   @ApiResponse({ status: 401, description: "Unauthorized" })
   async postMessage(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Param("aspirantId") aspirantId: string,
     @Body() dto: CreateAspirantDiscussionMessageDto,
   ) {
@@ -108,7 +111,7 @@ export class AspirantDiscussionController {
   })
   @ApiResponse({ status: 404, description: "Message not found" })
   async deleteMessage(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Param("messageId") messageId: string,
   ) {
     return this.discussionService.deleteMessage(

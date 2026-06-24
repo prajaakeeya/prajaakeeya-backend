@@ -17,7 +17,10 @@ import {
   ApiParam,
   ApiQuery,
 } from "@nestjs/swagger";
-import { CurrentUser } from "../common/decorators/current-user.decorator";
+import {
+  CurrentUser,
+  AuthUser,
+} from "../common/decorators/current-user.decorator";
 import { Public } from "../common/decorators/public.decorator";
 import { Roles } from "../common/decorators/roles.decorator";
 import { JwtAuthGuard } from "../common/guards/jwt-auth.guard";
@@ -32,7 +35,6 @@ import { CreateVisitDto } from "./dto/create-visit.dto";
 import { RespondVisitDto } from "./dto/respond-visit.dto";
 import { RespondMeetingDto } from "./dto/respond-meeting.dto";
 import { DeleteMeetingsDto } from "./dto/delete-meetings.dto";
-import { DeleteVisitsDto } from "./dto/delete-visits.dto";
 import { RateActivityDto } from "./dto/rate-activity.dto";
 import { UpdateAspirantDto } from "./dto/update-aspirant.dto";
 import { UpdateAspirantPermissionsDto } from "./dto/update-aspirant-permissions.dto";
@@ -58,7 +60,7 @@ export class AspirantsController {
     description: "Validation error or phone already in use",
   })
   @ApiResponse({ status: 401, description: "Unauthorized" })
-  create(@CurrentUser() user: any, @Body() dto: CreateAspirantDto) {
+  create(@CurrentUser() user: AuthUser, @Body() dto: CreateAspirantDto) {
     return this.aspirantsService.register(dto, user);
   }
 
@@ -151,7 +153,7 @@ export class AspirantsController {
     status: 404,
     description: "No aspirant profile found for this user",
   })
-  withdraw(@CurrentUser() user: any) {
+  withdraw(@CurrentUser() user: AuthUser) {
     return this.aspirantsService.withdrawAspirant(user.id);
   }
 
@@ -172,7 +174,7 @@ export class AspirantsController {
   })
   @ApiResponse({ status: 200, description: "Aspirant returned successfully" })
   @ApiResponse({ status: 404, description: "Aspirant not found" })
-  findOne(@Param("id") id: string, @CurrentUser() user?: any) {
+  findOne(@Param("id") id: string, @CurrentUser() user?: AuthUser) {
     const numId = Number(id);
     if (isNaN(numId)) return null;
     return this.aspirantsService.findOne(numId, user);
@@ -188,7 +190,7 @@ export class AspirantsController {
   })
   @ApiResponse({ status: 401, description: "Unauthorized" })
   @ApiResponse({ status: 404, description: "One or more aspirants not found" })
-  setMeeting(@CurrentUser() user: any, @Body() dto: SetMeetingLinkDto) {
+  setMeeting(@CurrentUser() user: AuthUser, @Body() dto: SetMeetingLinkDto) {
     return this.aspirantsService.setMeetingLinkForMultiple(
       dto.aspirantIds,
       dto.meetingLink,
@@ -218,7 +220,7 @@ export class AspirantsController {
     example: 12,
   })
   completeMeeting(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Param("id") id: string,
     @Param("meetingId") meetingId: string,
     @Body() dto: CompleteMeetingDto,
@@ -262,7 +264,7 @@ export class AspirantsController {
   })
   @ApiResponse({ status: 201, description: "Booking created" })
   book(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Param("id") id: string,
     @Body() dto: CreateBookingDto,
   ) {
@@ -285,7 +287,7 @@ export class AspirantsController {
     example: 5,
   })
   bookings(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Param("id") id: string,
     @Query("page") page?: string,
     @Query("limit") limit?: string,
@@ -310,7 +312,7 @@ export class AspirantsController {
   })
   @ApiResponse({ status: 201, description: "Visit created" })
   createVisit(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Param("id") id: string,
     @Body() dto: CreateVisitDto,
   ) {
@@ -359,7 +361,7 @@ export class AspirantsController {
   })
   @ApiResponse({ status: 201, description: "Response recorded" })
   respondVisit(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Param("visitId") visitId: string,
     @Body() dto: RespondVisitDto,
   ) {
@@ -386,7 +388,7 @@ export class AspirantsController {
       "Response recorded with updated attendingCount and notAttendingCount",
   })
   respondMeeting(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Param("meetingId") meetingId: string,
     @Body() dto: RespondMeetingDto,
   ) {
@@ -407,8 +409,11 @@ export class AspirantsController {
     description: "Visit ID",
     example: 10,
   })
-  getVisitResponses(@Param("visitId") visitId: string) {
-    return this.aspirantsService.getVisitResponses(Number(visitId));
+  getVisitResponses(
+    @Param("visitId") visitId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.aspirantsService.getVisitResponses(Number(visitId), user);
   }
 
   @Delete("meeting")
@@ -417,7 +422,10 @@ export class AspirantsController {
   @ApiOperation({ summary: "Delete multiple meetings by IDs" })
   @ApiResponse({ status: 200, description: "Meetings deleted successfully" })
   @ApiResponse({ status: 401, description: "Unauthorized" })
-  deleteMeetings(@CurrentUser() user: any, @Body() dto: DeleteMeetingsDto) {
+  deleteMeetings(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: DeleteMeetingsDto,
+  ) {
     return this.aspirantsService.deleteMeetings(dto.meetingIds, user);
   }
 
@@ -439,7 +447,7 @@ export class AspirantsController {
   })
   @ApiResponse({ status: 200, description: "Visit deleted" })
   deleteVisit(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Param("id") id: string,
     @Param("visitId") visitId: string,
   ) {
@@ -458,7 +466,7 @@ export class AspirantsController {
   })
   @ApiResponse({ status: 201, description: "Rating saved" })
   rateMeeting(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Param("meetingId") meetingId: string,
     @Body() dto: RateActivityDto,
   ) {
@@ -481,7 +489,7 @@ export class AspirantsController {
   })
   @ApiResponse({ status: 201, description: "Rating saved" })
   rateVisit(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Param("visitId") visitId: string,
     @Body() dto: RateActivityDto,
   ) {
@@ -506,7 +514,7 @@ export class AspirantsController {
   })
   @ApiResponse({ status: 201, description: "Contact rating saved" })
   rateContact(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Param("aspirantId") aspirantId: string,
     @Body() dto: RateActivityDto,
   ) {
@@ -532,7 +540,7 @@ export class AspirantsController {
   @ApiResponse({ status: 200, description: "Permissions updated" })
   @ApiResponse({ status: 404, description: "Aspirant not found" })
   updatePermissions(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Param("id") id: string,
     @Body() dto: UpdateAspirantPermissionsDto,
   ) {
@@ -552,7 +560,7 @@ export class AspirantsController {
   @ApiResponse({ status: 200, description: "Aspirant updated successfully" })
   @ApiResponse({ status: 404, description: "Aspirant not found" })
   updateAspirant(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Param("id") id: string,
     @Body() dto: UpdateAspirantDto,
   ) {

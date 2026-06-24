@@ -61,7 +61,9 @@ export class FirebaseService implements OnModuleInit {
         : admin.initializeApp({
             credential: admin.credential.cert(serviceAccount),
           });
-      this.logger.log("Firebase Admin initialised — push notifications enabled.");
+      this.logger.log(
+        "Firebase Admin initialised — push notifications enabled.",
+      );
     } catch (err) {
       this.logger.error(
         `Failed to initialise Firebase Admin: ${(err as Error).message}. ` +
@@ -84,7 +86,9 @@ export class FirebaseService implements OnModuleInit {
         return JSON.parse(inline) as admin.ServiceAccount;
       }
       if (path && path.trim()) {
-        return JSON.parse(fs.readFileSync(path, "utf8")) as admin.ServiceAccount;
+        return JSON.parse(
+          fs.readFileSync(path, "utf8"),
+        ) as admin.ServiceAccount;
       }
     } catch (err) {
       this.logger.error(
@@ -107,7 +111,10 @@ export class FirebaseService implements OnModuleInit {
     if (!token) return;
     const existing = await this.tokenRepo.findOne({ where: { token } });
     if (existing) {
-      if (existing.userId !== userId || (platform && existing.platform !== platform)) {
+      if (
+        existing.userId !== userId ||
+        (platform && existing.platform !== platform)
+      ) {
         existing.userId = userId;
         if (platform) existing.platform = platform;
         await this.tokenRepo.save(existing);
@@ -177,12 +184,15 @@ export class FirebaseService implements OnModuleInit {
         });
         res.responses.forEach((r, idx) => {
           if (!r.success && r.error) {
-            // TEMPORARY DIAGNOSTIC: surface the real FCM error code. iOS-only
-            // non-delivery typically shows `messaging/third-party-auth-error`
-            // (= APNs key/.p8 not configured in Firebase). Remove once confirmed.
-            this.logger.warn(`FCM send failed: ${r.error.code}`);
             if (PRUNE_ERROR_CODES.has(r.error.code)) {
+              // Routine churn — token belongs to an uninstalled app / rotated
+              // device. Prune it quietly; the "Pruned N tokens" debug summary
+              // below is enough. No need to WARN per dead token.
               invalid.push(batch[idx]);
+            } else {
+              // An unexpected delivery failure (e.g. third-party-auth-error =
+              // APNs key misconfig, or message-rate-exceeded) — keep it visible.
+              this.logger.warn(`FCM send failed: ${r.error.code}`);
             }
           }
         });

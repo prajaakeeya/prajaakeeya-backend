@@ -10,6 +10,7 @@ import { CreateAspirantWardMeetingDto } from "./dto/create-aspirant-ward-meeting
 import { NotificationsService } from "../notifications/notifications.service";
 import { ElectionsService } from "../elections/elections.service";
 import { ElectionType } from "../elections/election.entity";
+import { CreateWardMeetingDto } from "../wards/dto/create-ward-meeting.dto";
 
 @Injectable()
 export class AspirantWardMeetingsService {
@@ -40,16 +41,21 @@ export class AspirantWardMeetingsService {
       scheduledAt: dto.scheduledAt,
     };
 
-    const meeting = await this.wardsService.createMeeting(payload as any, userId);
+    const meeting = await this.wardsService.createMeeting(
+      payload as CreateWardMeetingDto,
+      userId,
+    );
 
     // Fan out an in-app notification to every user whose saved
     // constituency matches the aspirant's. Best-effort: don't break the
     // create flow if the lookup or insert fails.
     try {
       if (aspirant.electionId && aspirant.constituencyId) {
-        const election = await this.electionsService.findById(aspirant.electionId);
+        const election = await this.electionsService.findById(
+          aspirant.electionId,
+        );
         await this.notificationsService.notifyAspirantMeeting(
-          aspirant as any,
+          aspirant,
           {
             id: meeting.id,
             title: meeting.title,
@@ -75,8 +81,8 @@ export class AspirantWardMeetingsService {
     const user = await this.usersService.findById(userId);
     let wardId: number | undefined = undefined;
 
-    if (user && (user as any).wardId) {
-      wardId = (user as any).wardId;
+    if (user && user.wardId) {
+      wardId = user.wardId;
     } else {
       const aspirant = await this.aspirantsService.findByUserId(userId);
       if (aspirant?.wardId) wardId = aspirant.wardId;
@@ -96,7 +102,7 @@ export class AspirantWardMeetingsService {
     // allow creator or admin to complete the meeting
     const user = await this.usersService.findById(userId);
     const isCreator = meeting.createdById === userId;
-    const isAdmin = user && (user as any).role === "admin";
+    const isAdmin = user && user.role === "admin";
     if (!isCreator && !isAdmin) {
       throw new ForbiddenException(
         "Not authorized to add notes to this meeting",
@@ -112,7 +118,7 @@ export class AspirantWardMeetingsService {
 
     const user = await this.usersService.findById(userId);
     const isCreator = meeting.createdById === userId;
-    const isAdmin = user && (user as any).role === "admin";
+    const isAdmin = user && user.role === "admin";
     if (!isCreator && !isAdmin) {
       throw new ForbiddenException("Not authorized to delete this meeting");
     }

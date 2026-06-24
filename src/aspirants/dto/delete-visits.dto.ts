@@ -1,5 +1,5 @@
-import { IsArray, ArrayNotEmpty, IsInt, IsOptional } from "class-validator";
-import { ApiPropertyOptional, ApiProperty } from "@nestjs/swagger";
+import { IsArray, IsInt, IsOptional } from "class-validator";
+import { ApiPropertyOptional } from "@nestjs/swagger";
 
 export class DeleteVisitsDto {
   @ApiPropertyOptional({

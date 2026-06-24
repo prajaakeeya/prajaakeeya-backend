@@ -46,10 +46,18 @@ export class AddReminderFlags1775900000000 implements MigrationInterface {
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(`DROP INDEX IF EXISTS "idx_visits_pending_start_reminder";`);
-    await queryRunner.query(`DROP INDEX IF EXISTS "idx_visits_pending_before_reminder";`);
-    await queryRunner.query(`DROP INDEX IF EXISTS "idx_meetings_pending_start_reminder";`);
-    await queryRunner.query(`DROP INDEX IF EXISTS "idx_meetings_pending_before_reminder";`);
+    await queryRunner.query(
+      `DROP INDEX IF EXISTS "idx_visits_pending_start_reminder";`,
+    );
+    await queryRunner.query(
+      `DROP INDEX IF EXISTS "idx_visits_pending_before_reminder";`,
+    );
+    await queryRunner.query(
+      `DROP INDEX IF EXISTS "idx_meetings_pending_start_reminder";`,
+    );
+    await queryRunner.query(
+      `DROP INDEX IF EXISTS "idx_meetings_pending_before_reminder";`,
+    );
     await queryRunner.query(`
       ALTER TABLE "aspirant_visits"
       DROP COLUMN IF EXISTS "reminder_start_sent",

@@ -28,7 +28,13 @@ function buildService(deps: Record<string, any> = {}): any {
   return new IssuesService(
     deps.repo ?? noop,
     handRepo,
-    deps.electionsService ?? { findById: jest.fn(async () => ({ id: 1, type: "state_assembly", name: "AC" })) },
+    deps.electionsService ?? {
+      findById: jest.fn(async () => ({
+        id: 1,
+        type: "state_assembly",
+        name: "AC",
+      })),
+    },
     deps.wardsService ?? noop,
     deps.usersService ?? noop,
     dataSource,
@@ -65,7 +71,12 @@ describe("IssuesService — createHandRaise() toggle", () => {
     const res = await service.createHandRaise(1, 1, 2, { category: "Roads" });
 
     expect(create).toHaveBeenCalledWith(
-      expect.objectContaining({ electionId: 1, constituencyId: 2, createdById: 1, category: "Roads" }),
+      expect.objectContaining({
+        electionId: 1,
+        constituencyId: 2,
+        createdById: 1,
+        category: "Roads",
+      }),
     );
     expect(save).toHaveBeenCalled();
     expect(res).toEqual({ raised: true });
@@ -92,6 +103,8 @@ describe("IssuesService — createIssue()", () => {
         description: "Dark since a week",
       }),
     );
-    expect(result).toEqual(expect.objectContaining({ id: 9, title: "Broken streetlight" }));
+    expect(result).toEqual(
+      expect.objectContaining({ id: 9, title: "Broken streetlight" }),
+    );
   });
 });

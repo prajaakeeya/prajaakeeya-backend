@@ -20,14 +20,22 @@ describe("FirebaseService", () => {
     const save = jest.fn(async (x: any) => x);
     const repo = { findOne: jest.fn(async () => null), create, save };
     await makeService(repo).registerToken(57, "tok-1", "web");
-    expect(create).toHaveBeenCalledWith({ userId: 57, token: "tok-1", platform: "web" });
+    expect(create).toHaveBeenCalledWith({
+      userId: 57,
+      token: "tok-1",
+      platform: "web",
+    });
     expect(save).toHaveBeenCalled();
   });
 
   it("reassigns an existing token to the current user (idempotent)", async () => {
     const existing: any = { userId: 99, token: "tok-1", platform: "web" };
     const save = jest.fn(async (x: any) => x);
-    const repo = { findOne: jest.fn(async () => existing), create: jest.fn(), save };
+    const repo = {
+      findOne: jest.fn(async () => existing),
+      create: jest.fn(),
+      save,
+    };
     await makeService(repo).registerToken(57, "tok-1", "web");
     expect(existing.userId).toBe(57);
     expect(save).toHaveBeenCalledWith(existing);

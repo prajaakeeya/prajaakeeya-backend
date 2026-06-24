@@ -9,7 +9,10 @@ import {
 import { Throttle } from "@nestjs/throttler";
 import { JwtAuthGuard } from "../common/guards/jwt-auth.guard";
 import { Public } from "../common/decorators/public.decorator";
-import { CurrentUser } from "../common/decorators/current-user.decorator";
+import {
+  CurrentUser,
+  AuthUser,
+} from "../common/decorators/current-user.decorator";
 import { VotesService } from "./votes.service";
 import { CastVoteDto } from "./dto/cast-vote.dto";
 
@@ -40,7 +43,7 @@ export class VotesController {
     status: 429,
     description: "Too many requests — rate limit exceeded",
   })
-  castVote(@CurrentUser() user: any, @Body() dto: CastVoteDto) {
+  castVote(@CurrentUser() user: AuthUser, @Body() dto: CastVoteDto) {
     return this.votesService.castVote(user.id, dto);
   }
 
@@ -57,7 +60,8 @@ export class VotesController {
   async results(@Param("wardId") wardId: number) {
     const rows = await this.votesService.wardResults(Number(wardId));
     const total = rows.reduce(
-      (acc: number, r: any) => acc + Number(r.totalVotes || 0),
+      (acc: number, r: { totalVotes?: number | string }) =>
+        acc + Number(r.totalVotes || 0),
       0,
     );
     return { results: rows, totalVotes: total };
@@ -74,7 +78,7 @@ export class VotesController {
   @ApiResponse({ status: 200, description: "Vote returned successfully" })
   @ApiResponse({ status: 404, description: "Vote not found" })
   @ApiResponse({ status: 401, description: "Unauthorized" })
-  myVote(@CurrentUser() user: any, @Param("wardId") wardId: number) {
+  myVote(@CurrentUser() user: AuthUser, @Param("wardId") wardId: number) {
     return this.votesService.findUserVote(user.id, Number(wardId));
   }
 
