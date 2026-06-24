@@ -49,6 +49,7 @@ import { PendingAspirantRegistration } from "./aspirants/pending-aspirant-regist
 import { AspirantDiscussionModule } from "./aspirant-discussion/aspirant-discussion.module";
 import { AspirantDiscussionMessage } from "./aspirant-discussion/aspirant-discussion-message.entity";
 import { AdminDocument } from "./admin/admin-document.entity";
+import { AdminAuditLog } from "./admin/audit-log.entity";
 import { UserSignedDocument } from "./users/user-signed-document.entity";
 import { UserAspirantInteraction } from "./users/user-aspirant-interaction.entity";
 import { AspirantWardMeetingsModule } from "./aspirant-ward-meetings/aspirant-ward-meetings.module";
@@ -186,6 +187,7 @@ function resolveRedisUrl(): string | undefined {
         PendingAspirantRegistration,
         AspirantDiscussionMessage,
         AdminDocument,
+        AdminAuditLog,
         UserSignedDocument,
         UserAspirantInteraction,
         Issue,
