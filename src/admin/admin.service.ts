@@ -67,8 +67,12 @@ export class AdminService {
   }
 
   // User Management
-  async getAllUsers() {
-    return this.usersService.getAllUsers();
+  async getAllUsers(page?: number, limit?: number, search?: string) {
+    return this.usersService.findAllVoters(
+      page ?? 1,
+      limit ?? 50,
+      search,
+    );
   }
 
   async getUserById(id: number) {

@@ -22,6 +22,7 @@ import { JwtAuthGuard } from "../common/guards/jwt-auth.guard";
 import { RolesGuard } from "../common/guards/roles.guard";
 import { Roles } from "../common/decorators/roles.decorator";
 import { AdminService } from "./admin.service";
+import { AuditLogService } from "./audit-log.service";
 import { UpdateReportStatusDto } from "../users/dto/update-report-status.dto";
 import { UpdateUserDto } from "../users/dto/update-user.dto";
 import { CreateWardMeetingDto } from "../wards/dto/create-ward-meeting.dto";
@@ -41,7 +42,10 @@ import { CreateGramaPanchayatDto } from "../grama-panchayat/dto/create-grama-pan
 @Roles("admin")
 @ApiBearerAuth()
 export class AdminController {
-  constructor(private readonly adminService: AdminService) {}
+  constructor(
+    private readonly adminService: AdminService,
+    private readonly auditLog: AuditLogService,
+  ) {}
 
   @Get("dashboard")
   @ApiOperation({ summary: "Get admin dashboard statistics" })
@@ -97,27 +101,47 @@ export class AdminController {
   })
   @ApiResponse({ status: 404, description: "Report not found" })
   @ApiResponse({ status: 401, description: "Unauthorized" })
-  updateReportStatus(
+  async updateReportStatus(
     @Param("id") id: string,
     @Body() updateReportStatusDto: UpdateReportStatusDto,
     @Req() req: any,
   ) {
     const adminId = req.user?.id;
-    return this.adminService.updateReportStatus(
+    const result = await this.adminService.updateReportStatus(
       +id,
       updateReportStatusDto.status,
       updateReportStatusDto.adminNotes,
       adminId,
     );
+    await this.auditLog.log({
+      adminId,
+      adminEmail: req.user?.email,
+      action: "update_report_status",
+      resource: "report",
+      resourceId: +id,
+      metadata: { status: updateReportStatusDto.status },
+    });
+    return result;
   }
 
   // User Management Endpoints
   @Get("users")
-  @ApiOperation({ summary: "Get all users" })
+  @ApiOperation({ summary: "Get all users (paginated)" })
+  @ApiQuery({ name: "page", required: false, type: Number, description: "Page number (default 1)" })
+  @ApiQuery({ name: "limit", required: false, type: Number, description: "Items per page (default 50, max 200)" })
+  @ApiQuery({ name: "search", required: false, type: String, description: "Search by name" })
   @ApiResponse({ status: 200, description: "Users returned successfully" })
   @ApiResponse({ status: 401, description: "Unauthorized" })
-  getAllUsers() {
-    return this.adminService.getAllUsers();
+  getAllUsers(
+    @Query("page") page?: string,
+    @Query("limit") limit?: string,
+    @Query("search") search?: string,
+  ) {
+    return this.adminService.getAllUsers(
+      page ? Number(page) : undefined,
+      limit ? Number(limit) : undefined,
+      search,
+    );
   }
 
   @Get("users/:id")
@@ -156,8 +180,16 @@ export class AdminController {
   @ApiResponse({ status: 200, description: "User unblocked successfully" })
   @ApiResponse({ status: 404, description: "User not found" })
   @ApiResponse({ status: 401, description: "Unauthorized" })
-  unblockUser(@Param("id") id: string) {
-    return this.adminService.unblockUser(+id);
+  async unblockUser(@Param("id") id: string, @Req() req: any) {
+    const result = await this.adminService.unblockUser(+id);
+    await this.auditLog.log({
+      adminId: req.user?.id,
+      adminEmail: req.user?.email,
+      action: "unblock_user",
+      resource: "user",
+      resourceId: +id,
+    });
+    return result;
   }
 
   // @Delete("users/:id")
@@ -260,8 +292,17 @@ export class AdminController {
   @Post("elections")
   @ApiOperation({ summary: "Create a new election type" })
   @ApiResponse({ status: 201, description: "Election created" })
-  createElection(@Body() dto: CreateElectionDto) {
-    return this.adminService.createElection(dto);
+  async createElection(@Body() dto: CreateElectionDto, @Req() req: any) {
+    const result = await this.adminService.createElection(dto);
+    await this.auditLog.log({
+      adminId: req.user?.id,
+      adminEmail: req.user?.email,
+      action: "create_election",
+      resource: "election",
+      resourceId: (result as any)?.id,
+      metadata: { name: dto.name, type: (dto as any).type },
+    });
+    return result;
   }
 
   @Patch("elections/:id")
@@ -269,8 +310,17 @@ export class AdminController {
   @ApiParam({ name: "id", type: "number" })
   @ApiResponse({ status: 200, description: "Election updated" })
   @ApiResponse({ status: 404, description: "Election not found" })
-  updateElection(@Param("id") id: string, @Body() dto: UpdateElectionDto) {
-    return this.adminService.updateElection(+id, dto);
+  async updateElection(@Param("id") id: string, @Body() dto: UpdateElectionDto, @Req() req: any) {
+    const result = await this.adminService.updateElection(+id, dto);
+    await this.auditLog.log({
+      adminId: req.user?.id,
+      adminEmail: req.user?.email,
+      action: "update_election",
+      resource: "election",
+      resourceId: +id,
+      metadata: dto as any,
+    });
+    return result;
   }
 
   // @Delete("elections/:id")
@@ -446,8 +496,17 @@ export class AdminController {
   @ApiOperation({ summary: "Set the voting window with start and end times" })
   @ApiResponse({ status: 201, description: "Voting window set successfully" })
   @ApiResponse({ status: 401, description: "Unauthorized" })
-  setVotingWindow(@Body() dto: SetVotingWindowDto) {
-    return this.adminService.setVotingWindow(dto);
+  async setVotingWindow(@Body() dto: SetVotingWindowDto, @Req() req: any) {
+    const result = await this.adminService.setVotingWindow(dto);
+    await this.auditLog.log({
+      adminId: req.user?.id,
+      adminEmail: req.user?.email,
+      action: "set_voting_window",
+      resource: "voting_window",
+      resourceId: (result as any)?.id,
+      metadata: { startTime: dto.startTime, endTime: dto.endTime, electionId: dto.electionId },
+    });
+    return result;
   }
 
   @Get("voting-window")
@@ -470,5 +529,30 @@ export class AdminController {
   @ApiResponse({ status: 401, description: "Unauthorized" })
   getAllVotingWindows() {
     return this.adminService.getAllVotingWindows();
+  }
+
+  // Audit Log
+  @Get("audit-logs")
+  @ApiOperation({ summary: "Get admin audit log (paginated)" })
+  @ApiQuery({ name: "adminId", required: false, type: Number })
+  @ApiQuery({ name: "action", required: false, type: String })
+  @ApiQuery({ name: "resource", required: false, type: String })
+  @ApiQuery({ name: "page", required: false, type: Number })
+  @ApiQuery({ name: "limit", required: false, type: Number })
+  @ApiResponse({ status: 200, description: "Audit logs returned" })
+  getAuditLogs(
+    @Query("adminId") adminId?: string,
+    @Query("action") action?: string,
+    @Query("resource") resource?: string,
+    @Query("page") page?: string,
+    @Query("limit") limit?: string,
+  ) {
+    return this.auditLog.findAll({
+      adminId: adminId ? Number(adminId) : undefined,
+      action,
+      resource,
+      page: page ? Number(page) : undefined,
+      limit: limit ? Number(limit) : undefined,
+    });
   }
 }

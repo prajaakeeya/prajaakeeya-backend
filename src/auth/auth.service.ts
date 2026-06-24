@@ -5,6 +5,8 @@ import {
 } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import { ConfigService } from "@nestjs/config";
+import * as crypto from "crypto";
+import { promisify } from "util";
 import { UsersService } from "../users/users.service";
 import { VotesService } from "../votes/votes.service";
 import { WardsService } from "../wards/wards.service";
@@ -17,6 +19,8 @@ import { S3Service } from "../common/services/s3.service";
 import { LoginDto } from "./dto/login.dto";
 import { User } from "../users/user.entity";
 import axios from "axios";
+
+const scryptAsync = promisify(crypto.scrypt);
 
 @Injectable()
 export class AuthService {
@@ -60,7 +64,6 @@ export class AuthService {
   /** Issue a stateless HMAC-signed CSRF state token for the OAuth round-trip. */
   issueOAuthState(): string {
     const secret = this.requireSecret();
-    const crypto = require("crypto") as typeof import("crypto");
     const ts = Date.now().toString(36);
     const nonce = crypto.randomBytes(12).toString("hex");
     const payload = `${ts}.${nonce}`;
@@ -74,7 +77,6 @@ export class AuthService {
   /** Verify an OAuth state token: signature must match and timestamp ≤10 min. */
   verifyOAuthState(state: string): boolean {
     const secret = this.requireSecret();
-    const crypto = require("crypto") as typeof import("crypto");
     const parts = state.split(".");
     if (parts.length !== 3) return false;
     const [ts, nonce, sig] = parts;
@@ -214,7 +216,15 @@ export class AuthService {
     // 4. Generate JWT
     const jwt = await this.jwtService.signAsync(this.buildJwtPayload(user!));
 
-    // 5. Build redirect URL back to the app with token
+    // 5. Build redirect URL back to the app with token.
+    // NOTE: Passing the JWT as a query parameter exposes it in browser history,
+    // server/CDN access logs, and Referer headers. This is a known trade-off for
+    // SPAs that cannot receive tokens via POST. Mitigations in place:
+    //   • Short-lived tokens (JWT_EXPIRES_IN, default 120d — consider reducing)
+    //   • Token revocation via tokenVersion in Redis
+    //   • HTTPS enforced in production (no plaintext interception)
+    // A more secure alternative would be a one-time code exchanged server-side,
+    // or HTTP-only cookie delivery. Consider migrating when feasible.
     const sep = frontendRedirect.includes("?") ? "&" : "?";
     const redirectUrl = `${frontendRedirect}${sep}token=${encodeURIComponent(jwt)}`;
 
@@ -239,9 +249,6 @@ export class AuthService {
     if (!existing.passwordSalt || !existing.passwordHash) {
       throw new UnauthorizedException("Admin has no password set");
     }
-    const crypto = await import("crypto");
-    const { promisify } = await import("util");
-    const scryptAsync = promisify(crypto.scrypt);
     const hash = (
       (await scryptAsync(loginDto.password, existing.passwordSalt, 64)) as Buffer
     ).toString("hex");

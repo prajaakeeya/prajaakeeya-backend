@@ -26,10 +26,18 @@ export const tokenVersionCacheKey = (userId: number) =>
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(@Inject(CACHE_MANAGER) private readonly cache: Cache) {
+    const secret = process.env.JWT_SECRET;
+    if (!secret) {
+      // Fail loudly at startup rather than silently accepting tokens signed
+      // with an empty/undefined secret, which would be a critical security hole.
+      throw new Error(
+        "JWT_SECRET environment variable is not set. Cannot initialise JWT strategy.",
+      );
+    }
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: process.env.JWT_SECRET,
+      secretOrKey: secret,
       // Pin the accepted signature algorithm — without this, passport-jwt
       // accepts any algorithm the token claims, enabling algorithm-confusion.
       algorithms: ["HS256"],

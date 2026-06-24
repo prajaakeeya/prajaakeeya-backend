@@ -175,6 +175,8 @@ export class VotesService {
         endTime: Number(saved.endTime),
         description: saved.description ?? null,
         electionName: withRelations?.election?.name ?? null,
+        electionId: withRelations?.election?.id ?? null,
+        electionType: withRelations?.election?.type ?? null,
       });
     } catch {
       /* best-effort */

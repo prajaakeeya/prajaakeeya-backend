@@ -865,7 +865,7 @@ export class AspirantsService {
       .getMany();
 
     if (!aspirants.length)
-      return [this.getDemoAspirant(electionId, constituencyId)];
+      return [];
 
     const ids = aspirants.map((a) => a.id);
 
@@ -1029,7 +1029,13 @@ export class AspirantsService {
   }
 
   async findOne(id: number, currentUser?: any) {
-    if (id === 0) return this.getDemoAspirant();
+    // id=0 is a synthetic "demo aspirant" used by the FE for onboarding previews.
+    // Only serve it in non-production environments to avoid mixing demo data
+    // with real production responses.
+    if (id === 0 && process.env.NODE_ENV !== "production") {
+      return this.getDemoAspirant();
+    }
+    if (id === 0) return null;
 
     const aspirant = await this.repo.findOne({
       where: { id },

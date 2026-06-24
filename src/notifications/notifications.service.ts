@@ -508,23 +508,66 @@ export class NotificationsService {
 
   /**
    * Fan out a notification to every active user that a voting window
-   * has been opened/scheduled. Used when an admin sets a new window.
+   * has been opened/scheduled. Filters recipients by the election's
+   * constituency type so only users who belong to that election's
+   * constituency are notified (instead of every user on the platform).
    */
   async notifyVotingWindowOpened(window: {
     startTime: number;
     endTime: number;
     description?: string | null;
     electionName?: string | null;
+    electionId?: number | null;
+    electionType?: string | null;
   }) {
     try {
-      const rows = await this.repo.manager
-        .createQueryBuilder()
-        .select("u.id", "id")
-        .from("users", "u")
-        .where("u.is_blocked = false")
-        .andWhere("u.is_self_deleted = false")
-        .getRawMany();
-      const recipients = rows.map((r) => Number(r.id));
+      let recipients: number[];
+
+      // If we have enough context to narrow by constituency, do so.
+      // Otherwise fall back to all active users (existing behaviour for
+      // elections that don't have a known type/constituency).
+      if (window.electionType) {
+        const column = ({
+          lok_sabha: "lok_sabha_constituency_id",
+          state_assembly: "state_assembly_constituency_id",
+          municipal_corporation: "municipal_corporation_constituency_id",
+          gram_panchayat: "gram_panchayat_constituency_id",
+        } as Record<string, string>)[window.electionType];
+
+        if (column) {
+          // Notify users who have set a constituency for this election type.
+          const rows = await this.repo.manager
+            .createQueryBuilder()
+            .select("u.id", "id")
+            .from("users", "u")
+            .where("u.is_blocked = false")
+            .andWhere("u.is_self_deleted = false")
+            .andWhere(`u.${column} IS NOT NULL`)
+            .getRawMany();
+          recipients = rows.map((r) => Number(r.id));
+        } else {
+          // Unknown election type — fall back to all active users.
+          const rows = await this.repo.manager
+            .createQueryBuilder()
+            .select("u.id", "id")
+            .from("users", "u")
+            .where("u.is_blocked = false")
+            .andWhere("u.is_self_deleted = false")
+            .getRawMany();
+          recipients = rows.map((r) => Number(r.id));
+        }
+      } else {
+        // No election type provided — notify all active users.
+        const rows = await this.repo.manager
+          .createQueryBuilder()
+          .select("u.id", "id")
+          .from("users", "u")
+          .where("u.is_blocked = false")
+          .andWhere("u.is_self_deleted = false")
+          .getRawMany();
+        recipients = rows.map((r) => Number(r.id));
+      }
+
       if (!recipients.length) return { created: 0 };
 
       const electionSuffix = window.electionName
