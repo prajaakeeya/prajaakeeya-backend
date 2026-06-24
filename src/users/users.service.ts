@@ -4,6 +4,7 @@ import {
   BadRequestException,
   ConflictException,
   Inject,
+  Logger,
 } from "@nestjs/common";
 import { CACHE_MANAGER } from "@nestjs/cache-manager";
 import type { Cache } from "cache-manager";
@@ -54,6 +55,8 @@ function parseTokenTtlMs(raw?: string): number | undefined {
 
 @Injectable()
 export class UsersService {
+  private readonly logger = new Logger(UsersService.name);
+
   constructor(
     @InjectRepository(User) private readonly repo: Repository<User>,
     @InjectRepository(Report) private readonly reportRepo: Repository<Report>,
@@ -366,13 +369,6 @@ export class UsersService {
       queryBuilder.where("report.status = :status", { status });
     }
 
-    // Backwards-compatible: when callers don't request pagination, return the
-    // bare array (the historical admin response shape). Pagination kicks in
-    // only when page or limit is explicitly provided.
-    if (page === undefined && limit === undefined) {
-      return queryBuilder.getMany();
-    }
-
     const safeLimit = Math.min(Math.max(limit ?? 50, 1), 200);
     const safePage = Math.max(page ?? 1, 1);
     queryBuilder.skip((safePage - 1) * safeLimit).take(safeLimit);
@@ -527,7 +523,7 @@ export class UsersService {
     if (dto.relativeName !== undefined) user.relativeName = dto.relativeName;
     if (dto.epicId !== undefined) user.epicId = dto.epicId;
     if (dto.gender !== undefined) user.gender = dto.gender;
-    if ((dto as any).age !== undefined) user.age = (dto as any).age;
+    if (dto.age !== undefined) user.age = dto.age;
     if (dto.wardId !== undefined) user.wardId = dto.wardId;
     if (dto.role !== undefined) user.role = dto.role;
     if (dto.isBlocked !== undefined) user.isBlocked = dto.isBlocked;
@@ -582,7 +578,11 @@ export class UsersService {
     const saved = await this.repo.save(user);
     // Invalidate every JWT the blocked user is holding so they can't keep
     // calling protected endpoints until their token naturally expires.
-    await this.revokeAllSessions(id).catch(() => undefined);
+    await this.revokeAllSessions(id).catch((err) => {
+      this.logger.error(
+        `blockUser: failed to revoke sessions for user ${id}: ${(err as Error).message}`,
+      );
+    });
     return saved;
   }
 
@@ -598,7 +598,11 @@ export class UsersService {
     // Bump tokenVersion on unblock too — any JWT minted before block had
     // isBlocked=false in its payload, but we still want unblocked users
     // re-authenticated cleanly with a fresh token.
-    await this.revokeAllSessions(id).catch(() => undefined);
+    await this.revokeAllSessions(id).catch((err) => {
+      this.logger.error(
+        `unblockUser: failed to revoke sessions for user ${id}: ${(err as Error).message}`,
+      );
+    });
     return saved;
   }
 
@@ -662,16 +666,6 @@ export class UsersService {
   }
 
   async getUsersByWard(wardId: number, page?: number, limit?: number) {
-    // Bare-array response is preserved when caller doesn't ask for pagination
-    // (matches the historical admin endpoint behaviour).
-    if (page === undefined && limit === undefined) {
-      return this.repo.find({
-        where: { wardId },
-        relations: ["ward"],
-        order: { createdAt: "DESC" },
-      });
-    }
-
     const safeLimit = Math.min(Math.max(limit ?? 50, 1), 200);
     const safePage = Math.max(page ?? 1, 1);
     const [data, total] = await this.repo.findAndCount({
@@ -792,7 +786,9 @@ export class UsersService {
   async hasAnyInteraction(userId: number): Promise<boolean> {
     const user = await this.repo.findOne({ where: { id: userId } });
     if (!user) return false;
-    return user.isChat || user.isMeeting || user.isPhoneCall;
+    // Include all four interaction types — isDirectMeet was previously missing,
+    // which caused voters who only did a direct meet to be unable to vote.
+    return user.isChat || user.isMeeting || user.isDirectMeet || user.isPhoneCall;
   }
 
   async deleteAccount(userId: number) {
