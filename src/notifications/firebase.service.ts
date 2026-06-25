@@ -138,7 +138,7 @@ export class FirebaseService implements OnModuleInit {
     try {
       const tokens = await this.tokenRepo.find({
         where: { userId: In(userIds) },
-        select: ["token"],
+        select: { token: true },
       });
       if (!tokens.length) return;
       const all = tokens.map((t) => t.token);

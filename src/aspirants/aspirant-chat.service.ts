@@ -49,7 +49,7 @@ export class AspirantChatService {
       const [aspirant, sender] = await Promise.all([
         this.aspirantRepo.findOne({
           where: { id: aspirantId },
-          relations: ["user"],
+          relations: { user: true },
         }),
         this.repo.manager
           .getRepository("User" as any)

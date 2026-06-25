@@ -402,7 +402,7 @@ describe("WardsService — getMeetingById()", () => {
     await expect(service.getMeetingById(1)).resolves.toBe(meeting);
     expect(findOne).toHaveBeenCalledWith({
       where: { id: 1 },
-      relations: ["ward", "createdBy"],
+      relations: { ward: true, createdBy: true },
     });
   });
 

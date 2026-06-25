@@ -39,8 +39,8 @@ PostgreSQL and Redis, with media served from S3/CloudFront.
 
 | Area | Technology |
 |---|---|
-| Runtime | Node.js 20 (LTS) |
-| Framework | [NestJS](https://nestjs.com/) 10 (TypeScript) |
+| Runtime | Node.js 24 (LTS) |
+| Framework | [NestJS](https://nestjs.com/) 11 (TypeScript) |
 | Database | PostgreSQL (AWS RDS in cloud) via [TypeORM](https://typeorm.io/) |
 | Cache / rate-limit store | Redis ([ioredis](https://github.com/redisson/ioredis), self-hosted) — optional locally |
 | Auth | JWT (HS256) + Passport, Google OAuth 2.0, admin password (scrypt) |
@@ -86,7 +86,7 @@ PostgreSQL and Redis, with media served from S3/CloudFront.
 
 ## Prerequisites
 
-- **Node.js 20.x** and npm (CI runs on Node 20).
+- **Node.js 24.17.0** and npm (CI runs on Node 24).
 - **PostgreSQL 14+** running locally (or a reachable instance).
 - **Redis** (optional locally — recommended if you want to exercise caching /
   rate-limit behavior).

@@ -206,7 +206,7 @@ export class WardsService {
   async getMeetingById(id: number): Promise<WardMeeting> {
     const meeting = await this.meetingRepo.findOne({
       where: { id },
-      relations: ["ward", "createdBy"],
+      relations: { ward: true, createdBy: true },
     });
 
     if (!meeting) {
@@ -260,7 +260,7 @@ export class WardsService {
   async getActiveMeetingsByWard(wardId: number): Promise<WardMeeting[]> {
     return this.meetingRepo.find({
       where: { wardId, isActive: true },
-      relations: ["ward", "createdBy"],
+      relations: { ward: true, createdBy: true },
       order: { scheduledAt: "DESC" },
     });
   }

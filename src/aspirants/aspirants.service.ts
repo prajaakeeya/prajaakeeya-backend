@@ -929,7 +929,7 @@ export class AspirantsService {
     if (userId) {
       const interactions = await this.interactionRepo.find({
         where: { userId, aspirantId: In(ids), isPhoneCall: true },
-        select: ["aspirantId", "phoneCallAt"],
+        select: { aspirantId: true, phoneCallAt: true },
       });
       for (const i of interactions) {
         contactedAspirantIds.add(i.aspirantId);
@@ -1188,7 +1188,7 @@ export class AspirantsService {
     }
     return this.repo.findOne({
       where: { id },
-      relations: ["ward", "meetings"],
+      relations: { ward: true, meetings: true },
     });
   }
 
@@ -1203,7 +1203,7 @@ export class AspirantsService {
     user: { id?: number; role?: string } = {},
   ) {
     // Fetch all aspirants and verify they exist
-    const aspirants = await this.repo.findByIds(aspirantIds);
+    const aspirants = await this.repo.findBy({ id: In(aspirantIds) });
 
     if (aspirants.length !== aspirantIds.length) {
       const foundIds = aspirants.map((a) => a.id);
@@ -1246,7 +1246,7 @@ export class AspirantsService {
     // Return updated aspirants with their meetings
     return this.repo.find({
       where: { id: In(aspirantIds) },
-      relations: ["ward", "meetings"],
+      relations: { ward: true, meetings: true },
     });
   }
 
@@ -1273,7 +1273,7 @@ export class AspirantsService {
   ) {
     if (!meetingIds || meetingIds.length === 0) return { deleted: 0 };
     // verify meetings exist
-    const meetings = await this.meetingRepo.findByIds(meetingIds);
+    const meetings = await this.meetingRepo.findBy({ id: In(meetingIds) });
     if (meetings.length === 0) return { deleted: 0 };
 
     // Ownership: a non-admin caller may only delete meetings that belong to
@@ -1314,7 +1314,7 @@ export class AspirantsService {
 
   async deleteVisits(aspirantId: number, visitIds: number[]) {
     if (!visitIds || visitIds.length === 0) return { deleted: 0 };
-    const visits = await this.visitRepo.findByIds(visitIds);
+    const visits = await this.visitRepo.findBy({ id: In(visitIds) });
     // ensure they belong to aspirant
     const owned = visits
       .filter((v) => v.aspirantId === aspirantId)

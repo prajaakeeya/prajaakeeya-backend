@@ -367,7 +367,7 @@ export class MediaService {
   async getUserSignedDocuments(userId: number): Promise<UserSignedDocument[]> {
     return await this.userSignedDocRepo.find({
       where: { userId },
-      relations: ["adminDocument"],
+      relations: { adminDocument: true },
     });
   }
 
@@ -394,7 +394,7 @@ export class MediaService {
 
   async getAllUserSignedDocuments(): Promise<UserSignedDocument[]> {
     return await this.userSignedDocRepo.find({
-      relations: ["user", "adminDocument"],
+      relations: { user: true, adminDocument: true },
       order: { createdAt: "DESC" },
     });
   }

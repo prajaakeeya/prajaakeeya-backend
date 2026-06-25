@@ -168,7 +168,7 @@ export class VotesService {
     try {
       const withRelations = await this.votingWindowRepo.findOne({
         where: { id: saved.id },
-        relations: ["election"],
+        relations: { election: true },
       });
       await this.notificationsService.notifyVotingWindowOpened({
         startTime: Number(saved.startTime),
@@ -186,14 +186,14 @@ export class VotesService {
   async getActiveVotingWindow() {
     return this.votingWindowRepo.findOne({
       where: { isActive: true },
-      relations: ["election"],
+      relations: { election: true },
       order: { createdAt: "DESC" },
     });
   }
 
   async getAllVotingWindows() {
     return this.votingWindowRepo.find({
-      relations: ["election"],
+      relations: { election: true },
       order: { createdAt: "DESC" },
     });
   }
