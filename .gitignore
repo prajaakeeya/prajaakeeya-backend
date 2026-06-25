@@ -10,3 +10,4 @@ firebase-test.html
 firebase-service-account*.json
 *serviceAccount*.json
 *-firebase-adminsdk-*.json
+.worktrees
