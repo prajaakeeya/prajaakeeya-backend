@@ -119,11 +119,6 @@ function resolveRedisUrl(): string | undefined {
       type: "postgres",
       url: process.env.DATABASE_URL,
       synchronize: process.env.TYPEORM_SYNCHRONIZE === "true",
-      migrationsRun: process.env.NODE_ENV === "production",
-      // Only pick up proper MigrationInterface files (timestamp-prefixed).
-      // Legacy standalone scripts (`add-*`, `migrate-*`, `run-*`) have
-      // self-executing top-level code and must NOT be loaded by TypeORM.
-      migrations: ["dist/migrations/[0-9]*.js"],
       // SSL applies to every non-development environment. RDS has
       // `sslmode=require` in the URL, so we have to give pg an explicit ssl
       // object — passing `ssl: false` doesn't suppress the SSL negotiation

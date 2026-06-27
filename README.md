@@ -218,14 +218,20 @@ npm run start:prod    # run the compiled build (node dist/main)
 ## Database & migrations
 
 - **Entities** are registered per-module via `TypeOrmModule.forFeature([...])`.
-- **Local dev:** the quickest path is `TYPEORM_SYNCHRONIZE=true`, which builds
-  the schema from entities. Do **not** use this against shared/production data.
+- **Local dev:** build and run pending migrations before starting the app:
+
+  ```bash
+  npm run build
+  npm run migration:run   # applies all pending migrations to your local DB
+  npm run start:dev
+  ```
+
 - **Migrations** live in [`src/migrations/`](./src/migrations) and are
   timestamp-prefixed (`<epoch>-<name>.ts`). Only timestamp-prefixed files are
   loaded by TypeORM; legacy standalone scripts are intentionally excluded.
-- **In production**, migrations run automatically on boot
-  (`migrationsRun: true` when `NODE_ENV=production`), against the compiled
-  `dist/migrations/[0-9]*.js`.
+- **In CI/CD**, the deploy workflow runs `npm run migration:run` explicitly
+  after the build and before PM2 restarts. A failed migration aborts the deploy
+  before any traffic hits the new process.
 
 Creating a migration (manual, since this repo uses a glob loader):
 

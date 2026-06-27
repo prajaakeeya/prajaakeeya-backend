@@ -14,7 +14,8 @@
     "typecheck": "tsc --noEmit",
     "start:prod": "node dist/main",
     "seed:karnataka": "ts-node src/seeders/seed-karnataka.ts",
-    "test:e2e": "jest --config ./test/jest-e2e.json --runInBand"
+    "test:e2e": "jest --config ./test/jest-e2e.json --runInBand",
+    "migration:run": "typeorm migration:run -d dist/data-source.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.986.0",

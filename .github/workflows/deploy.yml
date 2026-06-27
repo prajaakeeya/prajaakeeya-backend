@@ -100,6 +100,10 @@ jobs:
 
           (cd "$APP_DIR" && npm ci --omit=dev)
 
+          # Run pending migrations before the new process starts.
+          # Fails the deploy if any migration errors — PM2 is never restarted.
+          (cd "$APP_DIR" && node node_modules/.bin/typeorm migration:run -d dist/data-source.js)
+
           export PATH="$HOME/.local/bin:$PATH"
           if ! command -v pm2 >/dev/null 2>&1; then
             npm config set prefix "$HOME/.local"
@@ -155,6 +159,10 @@ jobs:
             export PATH="$HOME/.nvm/versions/node/v24.14.0/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:$PATH"
             cd "'$APP_DIR'"
             npm ci --omit=dev
+
+            # Run pending migrations before the new process starts.
+            # Fails the deploy if any migration errors — PM2 is never restarted.
+            node node_modules/.bin/typeorm migration:run -d dist/data-source.js
 
             if ! command -v pm2 >/dev/null 2>&1; then
               npm config set prefix "$HOME/.local"
