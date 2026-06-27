@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Inject,
   Injectable,
+  Logger,
   UnauthorizedException,
 } from "@nestjs/common";
 import { CACHE_MANAGER } from "@nestjs/cache-manager";
@@ -46,6 +47,8 @@ export class AuthService {
     private readonly configService: ConfigService,
     @Inject(CACHE_MANAGER) private readonly cache: Cache,
   ) {}
+
+  private readonly logger = new Logger(AuthService.name);
 
   /** One-time OAuth code: cache key prefix and (short) single-use lifetime. */
   private readonly oauthCodeTtlMs = 60 * 1000;
@@ -468,6 +471,37 @@ export class AuthService {
     return { token: jwt, user: user! };
   }
 
+  // k-Anonymity HIBP check: only the 5-char SHA-1 prefix leaves the process.
+  // Returns the number of breach occurrences (0 if not found or API unreachable).
+  // Never throws — callers must not block login on HIBP unavailability.
+  private async checkPwnedPassword(password: string): Promise<number> {
+    const sha1 = crypto
+      .createHash("sha1")
+      .update(password)
+      .digest("hex")
+      .toUpperCase();
+    const prefix = sha1.slice(0, 5);
+    const suffix = sha1.slice(5);
+    try {
+      const controller = new AbortController();
+      const t = setTimeout(() => controller.abort(), 3000);
+      const res = await fetch(
+        `https://api.pwnedpasswords.com/range/${prefix}`,
+        { signal: controller.signal, headers: { "Add-Padding": "true" } },
+      );
+      clearTimeout(t);
+      if (!res.ok) return 0;
+      const text = await res.text();
+      for (const line of text.split("\r\n")) {
+        const [lineSuffix, count] = line.split(":");
+        if (lineSuffix === suffix) return parseInt(count, 10) || 1;
+      }
+    } catch {
+      // HIBP unreachable — fail open so network issues never block admin login.
+    }
+    return 0;
+  }
+
   async adminLogin(loginDto: LoginDto) {
     if (!loginDto.email) {
       throw new UnauthorizedException("Email required for admin login");
@@ -507,7 +541,24 @@ export class AuthService {
       throw new UnauthorizedException("Invalid admin credentials");
     }
 
-    return this.issueSession(existing);
+    const pwnedCount = await this.checkPwnedPassword(loginDto.password);
+    if (pwnedCount > 0) {
+      this.logger.warn({
+        email: loginDto.email,
+        pwnedCount,
+        action: "admin.login.pwned_password",
+        message: "Admin login with password found in known breach data",
+      });
+    }
+
+    const session = await this.issueSession(existing);
+    if (pwnedCount > 0) {
+      return {
+        ...session,
+        warning: `This password appears in ${pwnedCount.toLocaleString()} known data breach(es). Change it immediately.`,
+      };
+    }
+    return session;
   }
 
   /**
