@@ -33,7 +33,10 @@ import { CreateAssemblyDto } from "../geography/dto/create-assembly.dto";
 import { CreateMunicipalityDto } from "../geography/dto/create-municipality.dto";
 import { CreateWardDto } from "../wards/dto/create-ward.dto";
 import { CreateGramaPanchayatDto } from "../grama-panchayat/dto/create-grama-panchayat.dto";
-import { AuthUser } from "../common/decorators/current-user.decorator";
+import {
+  AuthUser,
+  CurrentUser,
+} from "../common/decorators/current-user.decorator";
 import { Throttle } from "@nestjs/throttler";
 
 // Stricter throttle for admin endpoints to limit abuse from a compromised
@@ -162,8 +165,8 @@ export class AdminController {
   @ApiResponse({ status: 200, description: "User unblocked successfully" })
   @ApiResponse({ status: 404, description: "User not found" })
   @ApiResponse({ status: 401, description: "Unauthorized" })
-  unblockUser(@Param("id") id: string) {
-    return this.adminService.unblockUser(+id);
+  unblockUser(@Param("id") id: string, @CurrentUser() actor: AuthUser) {
+    return this.adminService.unblockUser(+id, actor.id);
   }
 
   // @Delete("users/:id")
@@ -455,8 +458,8 @@ export class AdminController {
   @ApiOperation({ summary: "Set the voting window with start and end times" })
   @ApiResponse({ status: 201, description: "Voting window set successfully" })
   @ApiResponse({ status: 401, description: "Unauthorized" })
-  setVotingWindow(@Body() dto: SetVotingWindowDto) {
-    return this.adminService.setVotingWindow(dto);
+  setVotingWindow(@Body() dto: SetVotingWindowDto, @CurrentUser() actor: AuthUser) {
+    return this.adminService.setVotingWindow(dto, actor.id);
   }
 
   @Get("voting-window")

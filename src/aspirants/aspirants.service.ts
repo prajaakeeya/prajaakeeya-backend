@@ -32,6 +32,7 @@ import { User } from "../users/user.entity";
 import { NotificationsService } from "../notifications/notifications.service";
 import { Election, ElectionType } from "../elections/election.entity";
 import { AuthUser } from "../common/decorators/current-user.decorator";
+import { AuditService } from "../audit/audit.service";
 
 interface ResponseCounts {
   attending: number;
@@ -104,6 +105,7 @@ export class AspirantsService {
     @Inject(forwardRef(() => VotesService))
     private readonly votesService: VotesService,
     private readonly dataSource: DataSource,
+    private readonly auditService: AuditService,
   ) {}
 
   /**
@@ -328,7 +330,16 @@ export class AspirantsService {
       );
     }
 
-    return this.create(dto, user);
+    const result = await this.create(dto, user);
+    void this.auditService.log({
+      actorId: user.id,
+      actorRole: "user",
+      action: "aspirant.register",
+      targetType: "aspirant",
+      targetId: (result as { id?: number }).id,
+      metadata: { electionId: dto.electionId, constituencyId: dto.constituencyId },
+    });
+    return result;
   }
 
   private async create(dto: CreateAspirantDto, user?: AuthUser) {

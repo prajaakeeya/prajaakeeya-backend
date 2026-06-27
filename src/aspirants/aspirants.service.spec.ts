@@ -57,6 +57,7 @@ function buildService(deps: Record<string, any> = {}): any {
     deps.notificationsService ?? noop,
     deps.votesService ?? noop,
     dataSource,
+    deps.auditService ?? { log: jest.fn(async () => {}) },
   );
 }
 

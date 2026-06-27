@@ -21,6 +21,7 @@ function buildService(deps: Record<string, any> = {}): any {
     deps.wardsService ?? noop,
     deps.aspirantsService ?? noop,
     deps.notificationsService ?? noop,
+    deps.auditService ?? { log: jest.fn(async () => {}) },
   );
 }
 

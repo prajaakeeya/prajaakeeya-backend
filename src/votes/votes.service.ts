@@ -16,6 +16,7 @@ import { UsersService } from "../users/users.service";
 import { WardsService } from "../wards/wards.service";
 import { AspirantsService } from "../aspirants/aspirants.service";
 import { NotificationsService } from "../notifications/notifications.service";
+import { AuditService } from "../audit/audit.service";
 
 @Injectable()
 export class VotesService {
@@ -28,6 +29,7 @@ export class VotesService {
     @Inject(forwardRef(() => AspirantsService))
     private readonly aspirantsService: AspirantsService,
     private readonly notificationsService: NotificationsService,
+    private readonly auditService: AuditService,
   ) {}
 
   async castVote(userId: number, dto: CastVoteDto) {
@@ -64,7 +66,7 @@ export class VotesService {
     }
 
     try {
-      return await this.repo.save(
+      const vote = await this.repo.save(
         this.repo.create({
           aspirantId: dto.aspirantId,
           wardId: aspirant.wardId ?? undefined,
@@ -72,6 +74,15 @@ export class VotesService {
           votingWindowId: activeWindow.id,
         }),
       );
+      void this.auditService.log({
+        actorId: userId,
+        actorRole: "user",
+        action: "vote.cast",
+        targetType: "aspirant",
+        targetId: dto.aspirantId,
+        metadata: { votingWindowId: activeWindow.id, wardId: aspirant.wardId },
+      });
+      return vote;
     } catch (e) {
       // The (userId, votingWindowId) unique constraint is the real guard: it
       // closes the check-then-insert race where two concurrent requests both
@@ -147,7 +158,7 @@ export class VotesService {
   }
 
   // Voting Window Management
-  async setVotingWindow(dto: SetVotingWindowDto) {
+  async setVotingWindow(dto: SetVotingWindowDto, actorId?: number) {
     // Deactivate all existing windows using query builder
     await this.votingWindowRepo
       .createQueryBuilder()
@@ -165,6 +176,19 @@ export class VotesService {
     });
 
     const saved = await this.votingWindowRepo.save(window);
+
+    void this.auditService.log({
+      actorId,
+      actorRole: "admin",
+      action: "voting_window.open",
+      targetType: "voting_window",
+      targetId: saved.id,
+      metadata: {
+        startTime: dto.startTime,
+        endTime: dto.endTime,
+        electionId: dto.electionId,
+      },
+    });
 
     // Fan out the in-app notification to every active user OFF the request
     // path. At ~75k users this broadcast takes ~15-20s; awaiting it inline

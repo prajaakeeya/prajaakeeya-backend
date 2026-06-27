@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common";
+import { AuditService } from "../audit/audit.service";
 import { WardsService } from "../wards/wards.service";
 import { AspirantsService } from "../aspirants/aspirants.service";
 import { VotesService } from "../votes/votes.service";
@@ -32,6 +33,7 @@ export class AdminService {
     private readonly assemblyService: AssemblyService,
     private readonly municipalityService: MunicipalityService,
     private readonly gramaPanchayatService: GramaPanchayatService,
+    private readonly auditService: AuditService,
   ) {}
 
   async dashboard() {
@@ -83,8 +85,16 @@ export class AdminService {
     return this.usersService.blockUser(id);
   }
 
-  async unblockUser(id: number) {
-    return this.usersService.unblockUser(id);
+  async unblockUser(id: number, actorId?: number) {
+    const result = await this.usersService.unblockUser(id);
+    void this.auditService.log({
+      actorId,
+      actorRole: "admin",
+      action: "user.unblock",
+      targetType: "user",
+      targetId: id,
+    });
+    return result;
   }
 
   async deleteUser(id: number) {
@@ -214,8 +224,8 @@ export class AdminService {
   }
 
   // Voting Window Management
-  async setVotingWindow(dto: SetVotingWindowDto) {
-    return this.votesService.setVotingWindow(dto);
+  async setVotingWindow(dto: SetVotingWindowDto, actorId?: number) {
+    return this.votesService.setVotingWindow(dto, actorId);
   }
 
   async getActiveVotingWindow() {

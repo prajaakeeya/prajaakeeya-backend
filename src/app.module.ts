@@ -64,6 +64,8 @@ import { Notification } from "./notifications/notification.entity";
 import { FcmToken } from "./notifications/fcm-token.entity";
 import { StatsModule } from "./stats/stats.module";
 import { RemindersModule } from "./reminders/reminders.module";
+import { AuditModule } from "./audit/audit.module";
+import { AuditEvent } from "./audit/audit-event.entity";
 
 // Build a Redis connection URL from REDIS_HOST + REDIS_PORT. Returns undefined
 // when REDIS_HOST is not set, so callers fall back to in-memory storage.
@@ -194,6 +196,7 @@ function resolveRedisUrl(): string | undefined {
         GramaPanchayat,
         Notification,
         FcmToken,
+        AuditEvent,
       ],
     }),
 
@@ -212,6 +215,7 @@ function resolveRedisUrl(): string | undefined {
     ElectionsModule,
     GramaPanchayatModule,
     NotificationsModule,
+    AuditModule,
     StatsModule,
     RemindersModule,
     MediaModule,
