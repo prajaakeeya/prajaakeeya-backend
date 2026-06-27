@@ -1,421 +1,315 @@
 # Prajaakeeya — Backend API
 
-Backend for **Prajaakeeya**, a civic-engagement platform that connects voters
-with election aspirants (candidates). Voters discover aspirants in their
-constituency, interact with them (chat, meetings, visits, calls), raise local
-issues, and cast votes during election windows; aspirants manage their profile,
-schedule meetings/visits, and engage their constituency.
+> **Civic tech for Karnataka's democracy.** Voters discover election candidates in their constituency, interact with them directly, raise local issues, and cast votes. Candidates manage their profiles, schedule ward meetings, and engage their constituency. Built for scale — from a ward of 2,000 voters to a Lok Sabha constituency of 2 million.
 
-This repository is the **REST API** — a NestJS modular monolith backed by
-PostgreSQL and Redis, with media served from S3/CloudFront.
+[![CI](https://github.com/prajaakeeya/prajaakeeya-backend/actions/workflows/ci.yml/badge.svg)](https://github.com/prajaakeeya/prajaakeeya-backend/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/prajaakeeya/prajaakeeya-backend/graph/badge.svg)](https://codecov.io/gh/prajaakeeya/prajaakeeya-backend)
 
-> New here? This README gets you from a fresh clone to a running, tested API.
-> For the test suite specifically, see **[TESTING.md](./TESTING.md)**.
+[![Node.js](https://img.shields.io/badge/Node.js-22-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
+[![NestJS](https://img.shields.io/badge/NestJS-10-E0234E?logo=nestjs&logoColor=white)](https://nestjs.com/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-336791?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
+[![Redis](https://img.shields.io/badge/Redis-7-DC382D?logo=redis&logoColor=white)](https://redis.io/)
 
----
-
-## Table of contents
-
-1. [Tech stack](#tech-stack)
-2. [Architecture](#architecture)
-3. [Prerequisites](#prerequisites)
-4. [Getting started](#getting-started)
-5. [Environment variables](#environment-variables)
-6. [Running the app](#running-the-app)
-7. [Database & migrations](#database--migrations)
-8. [Project structure](#project-structure)
-9. [Modules](#modules)
-10. [API documentation](#api-documentation)
-11. [Authentication & authorization](#authentication--authorization)
-12. [Testing](#testing)
-13. [CI/CD & deployment](#cicd--deployment)
-14. [Scripts reference](#scripts-reference)
-15. [Coding conventions](#coding-conventions)
-16. [Troubleshooting](#troubleshooting)
+[![AWS EC2](https://img.shields.io/badge/Compute-EC2%20%2B%20PM2-FF9900?logo=amazonaws&logoColor=white)](https://aws.amazon.com/ec2/)
+[![AWS RDS](https://img.shields.io/badge/Database-RDS%20PostgreSQL-527FFF?logo=amazonaws&logoColor=white)](https://aws.amazon.com/rds/)
+[![AWS S3](https://img.shields.io/badge/Media-S3%20%2B%20CloudFront-569A31?logo=amazons3&logoColor=white)](https://aws.amazon.com/s3/)
+[![Firebase](https://img.shields.io/badge/Push-Firebase%20FCM-FFCA28?logo=firebase&logoColor=black)](https://firebase.google.com/)
 
 ---
 
-## Tech stack
+## What Is This?
 
-| Area | Technology |
-|---|---|
-| Runtime | Node.js 20 (LTS) |
-| Framework | [NestJS](https://nestjs.com/) 10 (TypeScript) |
-| Database | PostgreSQL (AWS RDS in cloud) via [TypeORM](https://typeorm.io/) |
-| Cache / rate-limit store | Redis ([ioredis](https://github.com/redisson/ioredis), self-hosted) — optional locally |
-| Auth | JWT (HS256) + Passport, Google OAuth 2.0, admin password (scrypt) |
-| File storage | AWS S3 + CloudFront CDN |
-| API docs | Swagger / OpenAPI (`@nestjs/swagger`) |
-| Validation | `class-validator` + `class-transformer` (global `ValidationPipe`) |
-| Scheduling | `@nestjs/schedule` (cron — meeting/visit reminders) |
-| Rate limiting | `@nestjs/throttler` (Redis-backed when configured) |
-| Process manager | PM2 (cluster mode on EC2) |
-| Tests | Jest |
+Prajaakeeya is a civic platform built by volunteers to close the gap between voters and elected representatives in Karnataka. In most Indian elections, voters receive zero direct communication from candidates before or after election day. Prajaakeeya changes that.
+
+This repository is the **REST API** — a NestJS modular monolith that powers the web app, the PWA mobile apps, and the admin dashboard.
+
+**What voters can do:**
+- Discover all candidates registered in their ward, municipal, Gram Panchayat, Assembly, or Lok Sabha constituency
+- Chat directly with a candidate, attend their ward meetings, or request a personal visit
+- Rate candidates on their quality of engagement (chat, meetings, visits, phone calls)
+- Raise civic issues tied to their ward and see which candidates respond
+- Cast a vote — but only after at least one verified interaction with a candidate
+
+**What candidates (aspirants) can do:**
+- Register a profile with manifesto, constituency, and contact preferences
+- Schedule ward meetings and home visits; respond to individual meeting requests
+- Receive votes and see their constituency-level standing
+- Manage document uploads (SOP agreement, identity verification)
+
+**What makes the vote meaningful:**
+The vote is **interaction-gated** — a voter cannot cast a ballot until they have genuinely engaged with a candidate (chat, meeting, visit, or call). This eliminates passive name-recognition voting and forces candidates to be accessible.
+
+---
+
+## How It Works
+
+```
+Voter opens the app
+  └─ Browses candidates in their ward / constituency
+      └─ Chats with, meets, or visits a candidate
+          └─ Interaction verified → vote unlocked
+              └─ Votes cast inside an active election window
+                  └─ Ward results visible in real time
+```
+
+Election windows are time-bounded — an admin opens a window tied to a specific election. Votes are **per-window per-user**, enforced with a database-level unique constraint to close concurrent-request races.
 
 ---
 
 ## Architecture
 
-```
-      HTTPS  /api/*
-   ──────────────────▶  ┌──────────────────────┐
-       API clients      │   NestJS API (this)  │
-                        │   PM2 cluster · EC2   │
-                        └──────────┬───────────┘
-              ┌────────────────────┼────────────────────┐
-              ▼                    ▼                    ▼
-        ┌──────────┐        ┌───────────┐        ┌───────────┐
-        │ Postgres │        │   Redis   │        │   S3 +    │
-        │  (RDS)   │        │ (cache +  │        │ CloudFront│
-        │          │        │ throttle) │        │  (media)  │
-        └──────────┘        └───────────┘        └───────────┘
+```mermaid
+graph TB
+    classDef userNode    fill:#4A90E2,stroke:#2563EB,stroke-width:2px,color:#fff
+    classDef feNode      fill:#7C3AED,stroke:#5B21B6,stroke-width:2px,color:#fff
+    classDef apiNode     fill:#E0234E,stroke:#B91C3E,stroke-width:2px,color:#fff
+    classDef dbNode      fill:#336791,stroke:#1E4D6B,stroke-width:2px,color:#fff
+    classDef cacheNode   fill:#DC382D,stroke:#B22222,stroke-width:2px,color:#fff
+    classDef mediaNode   fill:#569A31,stroke:#3D7A20,stroke-width:2px,color:#fff
+    classDef pushNode    fill:#F59E0B,stroke:#D97706,stroke-width:2px,color:#fff
+
+    voter["👤 Voter\n(Web + PWA)"]:::userNode
+    aspirant["🏛️ Aspirant\n(Web + PWA)"]:::userNode
+    admin["🔑 Admin\n(Web)"]:::userNode
+
+    fe["React + Vite\nAmplify CDN"]:::feNode
+
+    subgraph api["NestJS API  ·  PM2 Cluster  ·  EC2"]
+        direction LR
+        auth["auth\nGoogle OAuth · scrypt"]:::apiNode
+        votes["votes\nwindow · cast · results"]:::apiNode
+        aspirantsM["aspirants\nprofile · meetings · visits"]:::apiNode
+        chat["chat + SSE\nReal-time events"]:::apiNode
+        issues["issues\nwards · hand-raises"]:::apiNode
+        notif["notifications\nFCM push"]:::apiNode
+    end
+
+    db[("PostgreSQL\nRDS\nvoter data · votes\nprofiles · elections")]:::dbNode
+    redis[("Redis\nRate-limit · Cache\nPub/Sub SSE fan-out")]:::cacheNode
+    s3[("S3 + CloudFront\nMedia · Documents\nPDFs")]:::mediaNode
+    firebase[("Firebase FCM\nPush notifications")]:::pushNode
+
+    voter & aspirant & admin --> fe
+    fe -- "HTTPS /api/*" --> api
+    auth & votes & aspirantsM & chat & issues --> db
+    chat & auth & votes --> redis
+    aspirantsM --> s3
+    notif --> firebase
 ```
 
-- **Modular monolith.** Each feature is a self-contained NestJS module
-  (`controller` + `service` + `entity` + `dto`). Modules import each other
-  explicitly via their `@Module({ imports, exports })`.
-- **Global prefix** `/api` and a global `ValidationPipe`
-  (`whitelist + forbidNonWhitelisted + transform`) — unknown body fields are
-  rejected with `400`.
-- **Stateless auth.** JWTs carry the user identity; revocation is enforced via a
-  Redis-backed `tokenVersion`. No server-side sessions.
-- **Redis is optional in local dev** — cache and throttling fall back to
-  in-memory when `REDIS_HOST` is not set.
+**Key design decisions:**
+
+| Decision | Rationale |
+|---|---|
+| Modular monolith | Each feature is a self-contained NestJS module. No microservices until scale requires it. |
+| Interaction-gated votes | Prevents name-recognition voting; enforces genuine candidate–voter engagement. |
+| Redis pub/sub for SSE | Multiple PM2 workers share one fan-out channel — no dropped chat events between cluster nodes. |
+| JWT access (15m) + rotating refresh (7d) | Short-lived access tokens; refresh rotation means a stolen token can't be reused after one rotation cycle. |
+| DB-level vote uniqueness | `UNIQUE(userId, votingWindowId)` constraint closes check-then-insert races under concurrent election traffic. |
 
 ---
 
-## Prerequisites
+## Election Coverage
 
-- **Node.js 20.x** and npm (CI runs on Node 20).
-- **PostgreSQL 14+** running locally (or a reachable instance).
-- **Redis** (optional locally — recommended if you want to exercise caching /
-  rate-limit behavior).
-- AWS credentials **only** if you need S3 (media upload) features locally; most
-  development works without them.
+The platform models Karnataka's full electoral hierarchy:
+
+```
+India
+└── Lok Sabha constituency  (543 nationwide)
+    └── Vidhan Sabha / State Assembly  (224 in Karnataka)
+        ├── Municipal Corporation  (e.g. Greater Bengaluru Authority)
+        │   └── Ward
+        └── Gram Panchayat
+            └── Village
+```
+
+A voter can hold constituency IDs at multiple levels simultaneously — common in Karnataka where a single voter is part of a ward, a GP, an Assembly segment, and a Lok Sabha constituency at once.
 
 ---
 
-## Getting started
+## Getting Started
+
+### Option A — Docker (fastest)
 
 ```bash
-# 1. Clone and install
-git clone <repo-url> prajaakeeya-backend
+git clone https://github.com/prajaakeeya/prajaakeeya-backend
 cd prajaakeeya-backend
-npm install
-
-# 2. Create your env file (see "Environment variables" below)
-cp .env.example .env   # if present; otherwise create .env from the table below
-#   At minimum set: DATABASE_URL, JWT_SECRET, NODE_ENV=development
-
-# 3. Create the local database
-createdb prajaakeeya          # or use your preferred Postgres tooling
-
-# 4. Load the schema
-#    Local dev: let TypeORM build the schema from entities
-TYPEORM_SYNCHRONIZE=true npm run start:dev
-#    (or run migrations — see "Database & migrations")
-
-# 5. Verify
-curl http://localhost:3000/api/health
+cp .env.example .env   # fill in DATABASE_URL + JWT_SECRET at minimum
+docker compose up --build
 ```
 
-The API listens on **http://localhost:3000** (override with `PORT`).
+The API starts at **http://localhost:3000/api**. Postgres 16 and Redis 7 start automatically; the API waits for a healthy DB before accepting connections.
+
+### Option B — Local Node.js
+
+**Prerequisites:** Node.js 22, PostgreSQL 14+, Redis (optional — cache and rate-limiting fall back to in-memory).
+
+```bash
+npm install
+cp .env.example .env   # fill in DATABASE_URL + JWT_SECRET
+createdb prajaakeeya
+TYPEORM_SYNCHRONIZE=true npm run start:dev   # builds schema on first run
+```
+
+Verify: `curl http://localhost:3000/api/health`
 
 ---
 
-## Environment variables
-
-Configuration is read from `.env` (loaded by `@nestjs/config`). Below are the
-variables the app reads. **Never commit real secrets** — `.env` is gitignored.
+## Environment Variables
 
 ### Core
 | Variable | Required | Description |
 |---|---|---|
-| `NODE_ENV` | yes | `development` \| `production`. Controls SSL, Swagger, CORS set, CSP. |
-| `PORT` | no | HTTP port (default `3000`). |
-| `CORS_ALLOWED_ORIGINS_DEV` | dev | Comma-separated allowed origins (non-prod). |
-| `CORS_ALLOWED_ORIGINS_PROD` | prod | Comma-separated allowed origins (prod). |
-
-### Database (PostgreSQL)
-| Variable | Required | Description |
-|---|---|---|
-| `DATABASE_URL` | yes | `postgres://user:pass@host:5432/db` connection string. |
-| `TYPEORM_SYNCHRONIZE` | no | `true` auto-syncs schema from entities (local dev only — **never in prod**). |
-| `DB_POOL_MAX` | no | Max DB pool connections. |
-| `RDS_SSL_INSECURE` | prod | `true` = TLS without cert verification (fine inside a VPC). |
-| `RDS_CA_PATH` | prod | Path to the AWS RDS CA bundle for verified TLS (default `/opt/rds/global-bundle.pem`). |
-
-> In non-development environments TLS is enforced. Provide **either**
-> `RDS_SSL_INSECURE=true` **or** the CA bundle, or the app throws on boot with
-> instructions.
+| `NODE_ENV` | yes | `development` \| `production` — controls SSL, Swagger, CORS, CSP |
+| `PORT` | no | HTTP port (default `3000`) |
+| `DATABASE_URL` | yes | `postgres://user:pass@host:5432/db` |
+| `JWT_SECRET` | yes | HMAC signing secret (min 32 chars) |
+| `REDIS_HOST` / `REDIS_PORT` | no | Redis location — omit for in-memory fallback |
 
 ### Auth & OAuth
-| Variable | Required | Description |
+| Variable | Description |
+|---|---|
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google OAuth 2.0 credentials (voter / aspirant login) |
+| `GOOGLE_REDIRECT_URI` | Backend callback URL — `/api/auth/google/callback` |
+| `GOOGLE_FRONTEND_REDIRECT_URI` | Where the browser is sent after login |
+| `JWT_ACCESS_EXPIRES_IN` | Access token TTL (default `15m`) |
+| `JWT_REFRESH_EXPIRES_IN` | Refresh token TTL (default `7d`) |
+
+### AWS — Storage
+| Variable | Description |
+|---|---|
+| `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | S3 credentials |
+| `AWS_S3_BUCKET_NAME` | Media upload bucket |
+| `AWS_CLOUDFRONT_DOMAIN` | CDN domain for public media URLs |
+
+### Push & Observability
+| Variable | Description |
+|---|---|
+| `FIREBASE_SERVICE_ACCOUNT` | Firebase service-account JSON (single line) for FCM push |
+| `FIREBASE_SERVICE_ACCOUNT_PATH` | Alternative: path to the JSON file on disk |
+| `SENTRY_DSN` | Sentry project DSN — leave unset to disable |
+
+### Rate Limiting & SSL
+| Variable | Default | Description |
 |---|---|---|
-| `JWT_SECRET` | yes | HMAC secret for signing/verifying JWTs. |
-| `JWT_EXPIRES_IN` | no | Token lifetime (e.g. `120d`). |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | for OAuth | Google OAuth 2.0 app credentials. |
-| `GOOGLE_REDIRECT_URI` | for OAuth | Backend callback URL (`/api/auth/google/callback`). |
-| `GOOGLE_FRONTEND_REDIRECT_URI` | for OAuth | Where to redirect the browser (with the issued token) after login. |
+| `THROTTLE_TTL` / `THROTTLE_LIMIT` | 60000ms / 200 | Global rate limit per IP |
+| `VOTE_THROTTLE_LIMIT` | 5 | Per-minute limit on the vote endpoint |
+| `TYPEORM_SYNCHRONIZE` | false | Auto-sync schema from entities — **dev only, never in prod** |
+| `RDS_SSL_INSECURE` | — | `true` = encrypted but unverified TLS (fine inside a private VPC) |
+| `RDS_CA_PATH` | `/opt/rds/global-bundle.pem` | Path to AWS RDS CA bundle for verified TLS |
 
-### AWS — storage (S3 / CloudFront)
-| Variable | Description |
-|---|---|
-| `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | S3 credentials. |
-| `AWS_S3_BUCKET_NAME` | Bucket for uploaded media. |
-| `AWS_CLOUDFRONT_DOMAIN` | CDN domain used to build public media URLs (optional). |
-
-### Push notifications (Firebase Cloud Messaging)
-| Variable | Description |
-|---|---|
-| `FIREBASE_SERVICE_ACCOUNT` | Firebase service-account **JSON** (minified, single line). Enables web push. |
-| `FIREBASE_SERVICE_ACCOUNT_PATH` | Alternative: **path to** the service-account JSON file on disk (easier on a server). Use this *or* the inline var. |
-
-> If neither is set, push is disabled — in-app notifications and token registration still work.
-
-### Error tracking (Sentry)
-| Variable | Description |
-|---|---|
-| `SENTRY_DSN` | Sentry project DSN. Enables error/exception reporting. **If unset, Sentry is disabled** (no-op). |
-| `SENTRY_TRACES_SAMPLE_RATE` | Fraction of requests sampled for performance tracing (default `0.1`; `0` = errors only). |
-
-### Redis, caching & misc
-| Variable | Description |
-|---|---|
-| `REDIS_HOST`, `REDIS_PORT` | Redis location (omit locally to use in-memory fallback). |
-| `CACHE_TTL_MS` | Default cache TTL. |
-| `THROTTLE_TTL`, `THROTTLE_LIMIT` | Global rate limit (default 200 req / 60s per IP). |
-| `VOTE_THROTTLE_LIMIT` | Tighter limit for vote endpoints. |
-| `NODE_APP_INSTANCE` | Set by PM2 cluster; the reminder cron only runs on instance `0`. |
-
-A minimal local `.env`:
+**Minimal `.env` for local development:**
 
 ```bash
 NODE_ENV=development
-PORT=3000
 DATABASE_URL=postgres://postgres:postgres@localhost:5432/prajaakeeya
-JWT_SECRET=dev-secret-change-me
-JWT_EXPIRES_IN=120d
-CORS_ALLOWED_ORIGINS_DEV=http://localhost:5173
+JWT_SECRET=dev-secret-replace-in-production-min-32-chars
 ```
-
----
-
-## Running the app
-
-```bash
-npm run start:dev     # watch mode (auto-reload) — for development
-npm run start         # run once (no watch)
-npm run build         # compile TypeScript to dist/
-npm run start:prod    # run the compiled build (node dist/main)
-```
-
-- Base URL: `http://localhost:3000/api`
-- Health check: `GET /api/health` → `{ status, database, uptime, timestamp }`
-
----
-
-## Database & migrations
-
-- **Entities** are registered per-module via `TypeOrmModule.forFeature([...])`.
-- **Local dev:** the quickest path is `TYPEORM_SYNCHRONIZE=true`, which builds
-  the schema from entities. Do **not** use this against shared/production data.
-- **Migrations** live in [`src/migrations/`](./src/migrations) and are
-  timestamp-prefixed (`<epoch>-<name>.ts`). Only timestamp-prefixed files are
-  loaded by TypeORM; legacy standalone scripts are intentionally excluded.
-- **In production**, migrations run automatically on boot
-  (`migrationsRun: true` when `NODE_ENV=production`), against the compiled
-  `dist/migrations/[0-9]*.js`.
-
-Creating a migration (manual, since this repo uses a glob loader):
-
-```bash
-# 1. Add src/migrations/<timestamp>-<name>.ts implementing MigrationInterface
-#    (copy an existing one as a template).
-# 2. Build so it lands in dist/migrations/
-npm run build
-# 3. It runs automatically in production; to apply locally, point a TypeORM
-#    DataSource at it or temporarily run with NODE_ENV=production against a
-#    local DB.
-```
-
-Seed reference geography data (Karnataka):
-
-```bash
-npm run seed:karnataka
-```
-
----
-
-## Project structure
-
-```
-src/
-├── main.ts                  # bootstrap: global prefix /api, ValidationPipe, helmet, CORS, Swagger
-├── app.module.ts            # root module: TypeORM, cache, throttler, all feature modules
-├── migrations/              # timestamp-prefixed TypeORM migrations
-├── seeders/                 # data seeders (e.g. seed-karnataka.ts)
-├── common/                  # shared building blocks
-│   ├── guards/              # JwtAuthGuard, OptionalJwtAuthGuard, RolesGuard
-│   ├── decorators/          # @Public, @Roles, @CurrentUser
-│   ├── filters/             # exception filters (e.g. multer)
-│   ├── services/            # S3Service, MediaService, ...
-│   └── controllers/         # MediaController
-└── <feature>/               # one folder per feature module:
-    ├── <feature>.module.ts
-    ├── <feature>.controller.ts
-    ├── <feature>.service.ts
-    ├── <feature>.entity.ts
-    ├── dto/
-    └── <feature>.module.spec.ts   # tests live next to the code
-```
-
-Each feature follows the same **controller → service → repository** shape.
-Cross-cutting concerns (auth guards, decorators, S3) live in `common/`.
 
 ---
 
 ## Modules
 
-| Module | Responsibility |
+| Module | What it owns |
 |---|---|
-| `auth` | Login (Google OAuth for voters/aspirants, password for admin), JWT issuance, `/auth/me`. |
-| `users` | Voter profiles, reporting users, interaction tracking, account deletion. |
-| `aspirants` | Aspirant profiles, meetings, visits, bookings, ratings, contact-permission flags. |
-| `aspirant-chat` | 1:1 chat messages between voters and an aspirant. |
-| `aspirant-discussion` | Ward-level public discussion threads. |
-| `aspirant-ward-meetings` | Ward meeting scheduling for aspirants. |
-| `votes` | Vote casting, voting windows, ward results. |
-| `issues` | Ward issues and category "hand-raises". |
-| `wards` | Ward data, ward meetings, search, voter counts. |
-| `voter-roll` | Official voter roll (EPIC) lookup + Excel upload. |
-| `elections` | Elections and their constituencies. |
-| `geography` | States, parliamentary, assembly, municipality reference data. |
-| `grama-panchayat` | Gram Panchayat geography (districts/taluks/GPs/villages). |
-| `notifications` | In-app notifications (list, unread count, read/delete). |
-| `forum` | Ward forum messages. |
-| `reminders` | Cron job: meeting/visit reminders (15 min before + at start). |
-| `stats` | Constituency-level statistics. |
-| `admin` | Admin dashboard + management of users, reports, elections, wards, geography, voting windows. |
-| `media` | S3 uploads (profile pictures, documents), presigned URLs. |
-| `pdf-upload` | Ward PDF upload pipeline. |
-| `extraction` | Voter-data extraction. |
-| `verification` | EPIC verification lookups. |
+| `auth` | Google OAuth login, admin password login (scrypt), JWT issuance, refresh token rotation, session revocation |
+| `users` | Voter profiles, reports, interaction tracking, account deletion |
+| `aspirants` | Candidate profiles, meetings, visits, bookings, activity ratings, contact-permission flags |
+| `aspirant-chat` | 1:1 chat between voter and candidate; SSE real-time event stream |
+| `aspirant-discussion` | Ward-level public discussion threads |
+| `aspirant-ward-meetings` | Ward meeting scheduling and attendance for aspirants |
+| `votes` | Vote casting, election windows (open/close), ward results |
+| `issues` | Civic issue creation, ward hand-raises, issue resolution tracking |
+| `wards` | Ward data, ward meetings, voter counts by ward |
+| `elections` | Elections and their constituency bindings |
+| `geography` | States, Lok Sabha, Vidhan Sabha, municipality reference data |
+| `grama-panchayat` | District / taluk / GP / village hierarchy |
+| `notifications` | In-app notifications — list, unread count, mark read/delete |
+| `reminders` | Cron: meeting + visit reminders at 15 min before and at start time |
+| `stats` | Constituency-level aggregate statistics |
+| `admin` | Dashboard, user management, reports, election/ward/geography CRUD, voting window control |
+| `media` | S3 upload pipeline, presigned URL generation, file-type enforcement |
+| `audit` | Immutable audit event log — votes cast, admin actions, aspirant registration, voting window open |
 
 ---
 
-## API documentation
+## Authentication & Authorization
 
-- All routes are under the global prefix **`/api`** (e.g. `/api/aspirants`).
-- **Swagger UI** is served **in non-production only**, at the path configured in
-  [`src/main.ts`](./src/main.ts) (`SwaggerModule.setup(...)`). Open it in your
-  browser while the dev server runs to explore and try every endpoint.
-- Authenticate in Swagger with **Bearer &lt;JWT&gt;** (the "Authorize" button).
+- **Voters and aspirants** log in via **Google OAuth 2.0** (`/api/auth/google` → callback → access token + rotating refresh token in httpOnly cookie).
+- **Admins** log in with email + **scrypt-hashed password** (`/api/auth/admin/login`). Login is checked against [HaveIBeenPwned](https://haveibeenpwned.com/Passwords) using k-Anonymity — a warning is returned if the password appears in known breach data.
+- **Access tokens** (HS256, 15 min) carry `{ sub, role, wardId, tokenVersion }`.
+- **Refresh tokens** rotate on every use. A reused or forged refresh token triggers reuse-detection and revokes the entire session.
+- **Revocation** is enforced per-request via a Redis-cached `tokenVersion` — blocking a user invalidates tokens within one cache TTL cycle.
+- **Guards**: `JwtAuthGuard`, `OptionalJwtAuthGuard` (public routes that personalize for signed-in callers), `RolesGuard + @Roles(...)`.
 
 ---
 
-## Authentication & authorization
+## Database & Migrations
 
-- **Tokens:** JWT signed HS256 with `JWT_SECRET`. The payload carries
-  `{ sub, role, wardId, isBlocked, tokenVersion }`.
-- **Roles:** `voter`, `aspirant`, `admin`.
-- **Login methods:**
-  - **Voters & aspirants** via **Google OAuth 2.0** (`/api/auth/google` → callback → redirect to the app with the issued token).
-  - **Admin** via email + **password** (scrypt-hashed).
-- **Guards** (`src/common/guards/`):
-  - `JwtAuthGuard` — requires a valid token (respects the `@Public()` decorator).
-  - `OptionalJwtAuthGuard` — decodes a token if present but never blocks; used on
-    public routes that personalize for a signed-in caller (e.g. an aspirant
-    seeing their own private contact details).
-  - `RolesGuard` + `@Roles(...)` — role-based access.
-- **Revocation:** a Redis-backed `tokenVersion` is checked on every request;
-  blocking/unblocking a user bumps it and invalidates existing tokens.
-- **Rate limiting:** global `ThrottlerGuard` (default 200 req/min/IP; stricter on
-  auth and vote endpoints).
+Migrations live in [`src/migrations/`](./src/migrations/) — timestamp-prefixed. Only timestamp-prefixed files are loaded by TypeORM; legacy standalone scripts in that directory are intentionally excluded.
+
+```bash
+# Seed Karnataka electoral geography (Lok Sabha, Assembly, GP, Village reference data)
+npm run seed:karnataka
+
+# Production: migrations run automatically before the app accepts traffic
+# Local dev: use TYPEORM_SYNCHRONIZE=true on first run, then switch to migrations
+```
 
 ---
 
 ## Testing
 
-Jest unit suite — **no database or server required** (mocked dependencies).
-**29 suites · 120 tests**, all passing.
+**262 tests · 34 suites · no external dependencies** (all dependencies mocked — no DB, no server required).
 
 ```bash
-npm test            # run all tests
-npm run test:watch  # watch mode
-npm run test:cov    # coverage
+npm test              # run all 262 tests
+npm run test:watch    # watch mode
+npm run test:cov      # coverage report
 ```
 
-Two layers: **module-wiring** tests (`*.module.spec.ts` — 22 files / 58 tests)
-and **service-behavior / security** tests (`*.service.spec.ts` — 7 files /
-62 tests). The suite runs in CI on every PR.
-
-Service-behavior coverage in brief:
-
-- **AspirantsService** (34) — contact privacy (phone/WhatsApp shown only when
-  allowed, except the owner); `register` / `updatePermissions` / `withdraw`
-  rules; **meeting requests** (`createBooking`) and **visits** (`createVisit`,
-  `respondToVisit`, `respondToMeeting` attendance counts); and **ratings** for
-  meetings, visits, and **contact** (`rateMeeting` / `rateVisit` are re-ratable;
-  `rateContact` is eligibility-gated and one-time).
-- **VotesService** (6), **UsersService** (5), **IssuesService** (4) — core
-  business rules (voting window, reports/pagination, hand-raise/issues).
-- **S3Service** (6), **FirebaseService** (5), **ChatEventsService** (2) —
-  infra/integration behavior (key extraction, FCM send, SSE event stream).
-
-See **[TESTING.md](./TESTING.md)** for the full breakdown.
+| Suite | Tests | Business rules guarded |
+|---|---|---|
+| AspirantsService | 34 | Contact privacy, booking/visit gates, rating rules (one-time contact rating, re-ratable meeting/visit) |
+| VotesService | 6 | Window enforcement, uniqueness, aspirant active-status check, interaction gate |
+| UsersService | 5 | Report pagination, account lifecycle |
+| IssuesService | 4 | Hand-raise eligibility, issue lifecycle |
+| S3Service | 6 | Key extraction, presign expiry behavior |
+| FirebaseService | 5 | FCM send, token registration |
 
 ---
 
-## CI/CD & deployment
+## CI/CD
 
-- **CI** — [`.github/workflows/ci.yml`](./.github/workflows/ci.yml) runs on
-  pull requests and pushes to `main` and `staging`:
+[`.github/workflows/ci.yml`](./.github/workflows/ci.yml) runs on every PR and push to `main` / `staging`:
 
-  ```
-  lint  →  typecheck  →  npm test --runInBand  →  build
-  ```
+```
+lint  →  typecheck  →  test (262)  →  build
+```
 
-  No external services needed (tests are fully mocked).
+[`.github/workflows/deploy.yml`](./.github/workflows/deploy.yml):
 
-- **Deploy** — [`.github/workflows/deploy.yml`](./.github/workflows/deploy.yml)
-  builds and ships to self-hosted EC2 runners on push:
-  - push to **`staging`** → staging EC2 (PM2 app `prajaakeeya-api-staging`)
-  - push to **`main`** → production EC2 (PM2 app `prajaakeeya-api`)
+| Push to | Target | PM2 app |
+|---|---|---|
+| `staging` | Staging EC2 | `prajaakeeya-api-staging` |
+| `main` | Production EC2 | `prajaakeeya-api` |
 
-  Migrations run automatically on production boot.
-
-**Branch model:** develop against `staging`; `main` is production. Open PRs into
-`staging`; CI must be green before merge.
+**Branch model:** `staging` is the integration branch. `main` is production. All contributor PRs target `staging`.
 
 ---
 
-## Scripts reference
+## Scripts
 
 | Script | Purpose |
 |---|---|
-| `npm run start:dev` | Run with watch/auto-reload. |
-| `npm run start` | Run once. |
-| `npm run start:prod` | Run the compiled build (`dist/main`). |
-| `npm run build` | Compile to `dist/`. |
-| `npm test` / `test:watch` / `test:cov` | Run tests / watch / coverage. |
-| `npm run lint` | ESLint with `--fix`. |
-| `npm run lint:check` | ESLint without fixing (CI). |
-| `npm run typecheck` | `tsc --noEmit` type check. |
-| `npm run seed:karnataka` | Seed Karnataka reference geography. |
-
----
-
-## Coding conventions
-
-- **TypeScript**, NestJS module pattern (`controller` → `service` →
-  repository). One folder per feature.
-- **DTOs + `class-validator`** for every request body; the global pipe rejects
-  unknown fields, so keep DTOs accurate.
-- **ESLint + Prettier** — run `npm run lint` before committing; CI enforces
-  `lint:check` and `typecheck`.
-- **Tests next to code** (`*.spec.ts`); keep them DB-free and server-free.
-- Prefer explicit module `imports`/`exports` over global singletons.
+| `npm run start:dev` | Watch mode — auto-reloads on file changes |
+| `npm run start:prod` | Run the compiled build (`node dist/main`) |
+| `npm run build` | Compile TypeScript → `dist/` |
+| `npm test` | Run all tests |
+| `npm run typecheck` | `tsc --noEmit` — zero-overhead type check |
+| `npm run lint` | ESLint with `--fix` |
+| `npm run seed:karnataka` | Seed Karnataka electoral geography |
 
 ---
 
@@ -423,13 +317,14 @@ See **[TESTING.md](./TESTING.md)** for the full breakdown.
 
 | Symptom | Fix |
 |---|---|
-| `Database SSL is not configured` on boot | Non-dev env without SSL config. Set `RDS_SSL_INSECURE=true` or provide `RDS_CA_PATH`. For local, ensure `NODE_ENV=development`. |
+| `Database SSL is not configured` on boot | Set `RDS_SSL_INSECURE=true` or provide `RDS_CA_PATH`. For local dev: ensure `NODE_ENV=development`. |
 | `ECONNREFUSED` to Postgres | Postgres not running or wrong `DATABASE_URL`. |
-| Schema is empty / tables missing locally | Run with `TYPEORM_SYNCHRONIZE=true` once, or apply migrations. |
-| Redis connection errors locally | Omit `REDIS_HOST` — cache & throttling fall back to in-memory. |
-| `429 Too Many Requests` while testing by hand | Global throttle (200/min/IP). Raise `THROTTLE_LIMIT` locally if needed. |
-| Swagger 404 | Swagger is disabled when `NODE_ENV=production`; use a non-prod env. |
+| Tables missing locally | Run with `TYPEORM_SYNCHRONIZE=true` once to build the schema from entities. |
+| Redis connection errors locally | Omit `REDIS_HOST` — throttling and cache fall back to in-memory. |
+| `429 Too Many Requests` while testing | Global throttle is 200 req/min/IP. Raise `THROTTLE_LIMIT` locally. |
+| Swagger 404 | Swagger is disabled in production. Run with `NODE_ENV=development`. |
 
 ---
 
-Questions or a gap in these docs? Open an issue or improve this README in your PR.
+> **Frontend:** [prajaakeeya-frontend](https://github.com/prajaakeeya/prajaakeeya-frontend) — React + Vite SPA / PWA
+> **Test detail:** [TESTING.md](./TESTING.md)
