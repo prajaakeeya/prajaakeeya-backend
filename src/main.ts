@@ -5,9 +5,13 @@ import { ClassSerializerInterceptor, ValidationPipe } from "@nestjs/common";
 import { SwaggerModule, DocumentBuilder } from "@nestjs/swagger";
 import helmet from "helmet";
 import { MulterExceptionFilter } from "./common/filters/multer-exception.filter";
+import { Logger } from "nestjs-pino";
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  // bufferLogs: true holds early bootstrap logs until Pino is ready, then
+  // replays them through the structured logger instead of the default console.
+  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  app.useLogger(app.get(Logger));
 
   // Security headers. In production we ship a strict CSP: locking script/object
   // sources and forbidding framing hardens any HTML this origin ever serves.

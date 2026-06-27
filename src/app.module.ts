@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { APP_GUARD, APP_FILTER } from "@nestjs/core";
 import { SentryModule, SentryGlobalFilter } from "@sentry/nestjs/setup";
 import { ConfigModule } from "@nestjs/config";
+import { LoggerModule } from "nestjs-pino";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import { ThrottlerModule, ThrottlerGuard } from "@nestjs/throttler";
 import { ThrottlerStorageRedisService } from "@nest-lab/throttler-storage-redis";
@@ -11,6 +12,8 @@ import { createKeyv } from "@keyv/redis";
 import Redis from "ioredis";
 
 import * as fs from "fs";
+import { req as stdReq } from "pino-std-serializers";
+import { genReqId } from "./logger/gen-req-id";
 
 import { validate } from "./config/env.validation";
 import { AuthModule } from "./auth/auth.module";
@@ -79,6 +82,49 @@ function resolveRedisUrl(): string | undefined {
     // Sentry instrumentation (no-op unless SENTRY_DSN is set).
     SentryModule.forRoot(),
     ConfigModule.forRoot({ isGlobal: true, validate }),
+
+    // Structured JSON logging via Pino. Each request is assigned a UUID
+    // (X-Request-Id header) that propagates to every log line within that
+    // request via pino-http's async context. Falls back to a debug transport
+    // (pino-pretty) in non-production environments.
+    LoggerModule.forRoot({
+      pinoHttp: {
+        genReqId,
+        level:
+          process.env.LOG_LEVEL ??
+          (process.env.NODE_ENV === "production" ? "info" : "debug"),
+        redact: {
+          paths: ["req.headers.authorization", "req.headers.cookie"],
+          remove: true,
+        },
+        serializers: {
+          req(req) {
+            const s = stdReq(req);
+            if (typeof s.url === "string") {
+              s.url = s.url.replace(
+                /([?&](?:token|access_token|secret|code)=)[^&]+/gi,
+                "$1[REDACTED]",
+              );
+            }
+            return s;
+          },
+        },
+        transport:
+          process.env.NODE_ENV !== "production"
+            ? {
+                target: "pino-pretty",
+                options: {
+                  colorize: true,
+                  translateTime: "HH:MM:ss",
+                  ignore: "pid,hostname",
+                },
+              }
+            : undefined,
+        autoLogging: {
+          ignore: (req) => (req.url ?? "").startsWith("/api/health"),
+        },
+      },
+    }),
 
     // Enables @Cron schedulers (meeting/visit reminders).
     ScheduleModule.forRoot(),
