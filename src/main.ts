@@ -1,7 +1,11 @@
 import "./instrument"; // MUST be first — initialises Sentry before anything else
 import { NestFactory, Reflector } from "@nestjs/core";
 import { AppModule } from "./app.module";
-import { ClassSerializerInterceptor, ValidationPipe } from "@nestjs/common";
+import {
+  ClassSerializerInterceptor,
+  ValidationPipe,
+  VersioningType,
+} from "@nestjs/common";
 import { SwaggerModule, DocumentBuilder } from "@nestjs/swagger";
 import helmet from "helmet";
 import { MulterExceptionFilter } from "./common/filters/multer-exception.filter";
@@ -34,6 +38,7 @@ async function bootstrap() {
 
   app.getHttpAdapter().getInstance().set("trust proxy", 1);
   app.setGlobalPrefix("api");
+  app.enableVersioning({ type: VersioningType.URI, defaultVersion: "1" });
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
