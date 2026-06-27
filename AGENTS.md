@@ -78,7 +78,7 @@ Each feature follows **controller → service → repository**. Cross-cutting co
   `main` is production.
 - **Migrations:** schema changes need a timestamp-prefixed file in
   `src/migrations/`. They auto-run on production boot; locally use
-  `TYPEORM_SYNCHRONIZE=true` against a local DB.
+  the migration workflow against a local DB.
 
 ---
 

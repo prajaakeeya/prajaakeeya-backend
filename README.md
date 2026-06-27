@@ -56,19 +56,12 @@ PostgreSQL and Redis, with media served from S3/CloudFront.
 
 ## Architecture
 
-```
-      HTTPS  /api/*
-   ──────────────────▶  ┌──────────────────────┐
-       API clients      │   NestJS API (this)  │
-                        │   PM2 cluster · EC2   │
-                        └──────────┬───────────┘
-              ┌────────────────────┼────────────────────┐
-              ▼                    ▼                    ▼
-        ┌──────────┐        ┌───────────┐        ┌───────────┐
-        │ Postgres │        │   Redis   │        │   S3 +    │
-        │  (RDS)   │        │ (cache +  │        │ CloudFront│
-        │          │        │ throttle) │        │  (media)  │
-        └──────────┘        └───────────┘        └───────────┘
+```mermaid
+flowchart LR
+  clients[API clients] -->|HTTPS /api/*| api[NestJS API<br/>PM2 cluster · EC2]
+  api --> db[Postgres<br/>RDS]
+  api --> redis[Redis<br/>cache + throttle]
+  api --> media[S3 + CloudFront<br/>media]
 ```
 
 - **Modular monolith.** Each feature is a self-contained NestJS module
@@ -110,10 +103,9 @@ cp .env.example .env   # if present; otherwise create .env from the table below
 # 3. Create the local database
 createdb prajaakeeya          # or use your preferred Postgres tooling
 
-# 4. Load the schema
-#    Local dev: let TypeORM build the schema from entities
-TYPEORM_SYNCHRONIZE=true npm run start:dev
-#    (or run migrations — see "Database & migrations")
+# 4. Load the schema by running migrations against the local database
+#    (see "Database & migrations")
+#    The app no longer supports schema sync from entities.
 
 # 5. Verify
 curl http://localhost:3000/api/health
@@ -140,7 +132,6 @@ variables the app reads. **Never commit real secrets** — `.env` is gitignored.
 | Variable | Required | Description |
 |---|---|---|
 | `DATABASE_URL` | yes | `postgres://user:pass@host:5432/db` connection string. |
-| `TYPEORM_SYNCHRONIZE` | no | `true` auto-syncs schema from entities (local dev only — **never in prod**). |
 | `DB_POOL_MAX` | no | Max DB pool connections. |
 | `RDS_SSL_INSECURE` | prod | `true` = TLS without cert verification (fine inside a VPC). |
 | `RDS_CA_PATH` | prod | Path to the AWS RDS CA bundle for verified TLS (default `/opt/rds/global-bundle.pem`). |
@@ -218,8 +209,8 @@ npm run start:prod    # run the compiled build (node dist/main)
 ## Database & migrations
 
 - **Entities** are registered per-module via `TypeOrmModule.forFeature([...])`.
-- **Local dev:** the quickest path is `TYPEORM_SYNCHRONIZE=true`, which builds
-  the schema from entities. Do **not** use this against shared/production data.
+- **Local dev:** apply the migrations against your local database before
+  starting the app. Do **not** rely on schema sync from entities.
 - **Migrations** live in [`src/migrations/`](./src/migrations) and are
   timestamp-prefixed (`<epoch>-<name>.ts`). Only timestamp-prefixed files are
   loaded by TypeORM; legacy standalone scripts are intentionally excluded.
@@ -425,7 +416,7 @@ See **[TESTING.md](./TESTING.md)** for the full breakdown.
 |---|---|
 | `Database SSL is not configured` on boot | Non-dev env without SSL config. Set `RDS_SSL_INSECURE=true` or provide `RDS_CA_PATH`. For local, ensure `NODE_ENV=development`. |
 | `ECONNREFUSED` to Postgres | Postgres not running or wrong `DATABASE_URL`. |
-| Schema is empty / tables missing locally | Run with `TYPEORM_SYNCHRONIZE=true` once, or apply migrations. |
+| Schema is empty / tables missing locally | Apply the migrations against your local database. |
 | Redis connection errors locally | Omit `REDIS_HOST` — cache & throttling fall back to in-memory. |
 | `429 Too Many Requests` while testing by hand | Global throttle (200/min/IP). Raise `THROTTLE_LIMIT` locally if needed. |
 | Swagger 404 | Swagger is disabled when `NODE_ENV=production`; use a non-prod env. |

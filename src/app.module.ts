@@ -118,7 +118,6 @@ function resolveRedisUrl(): string | undefined {
     TypeOrmModule.forRoot({
       type: "postgres",
       url: process.env.DATABASE_URL,
-      synchronize: process.env.TYPEORM_SYNCHRONIZE === "true",
       migrationsRun: process.env.NODE_ENV === "production",
       // Only pick up proper MigrationInterface files (timestamp-prefixed).
       // Legacy standalone scripts (`add-*`, `migrate-*`, `run-*`) have
