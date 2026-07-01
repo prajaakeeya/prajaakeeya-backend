@@ -5,6 +5,7 @@ import { PassportStrategy } from "@nestjs/passport";
 import { ExtractJwt, Strategy } from "passport-jwt";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
+import { ClsService } from "nestjs-cls";
 import { sessionCookieExtractor } from "../session-cookie";
 import { User } from "../../users/user.entity";
 
@@ -37,6 +38,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(
     @Inject(CACHE_MANAGER) private readonly cache: Cache,
     @InjectRepository(User) private readonly userRepo: Repository<User>,
+    private readonly cls: ClsService,
   ) {
     super({
       // Accept the token from either the Authorization header (bearer clients:
@@ -110,6 +112,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       presented < Number(current)
     ) {
       throw new UnauthorizedException("Session has been revoked");
+    }
+
+    // Set the userId in the CLS context so the AuditSubscriber can access it globally
+    if (this.cls.isActive()) {
+      this.cls.set("userId", payload.sub);
     }
 
     return {

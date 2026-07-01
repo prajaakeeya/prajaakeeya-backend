@@ -10,6 +10,7 @@ import { ScheduleModule } from "@nestjs/schedule";
 import { createKeyv } from "@keyv/redis";
 import Redis from "ioredis";
 
+import { ClsModule } from "nestjs-cls";
 import * as fs from "fs";
 
 import { validate } from "./config/env.validation";
@@ -55,6 +56,9 @@ import { AspirantWardMeetingsModule } from "./aspirant-ward-meetings/aspirant-wa
 import { IssuesModule } from "./issues/issues.module";
 import { Issue } from "./issues/issue.entity";
 import { HandRaise } from "./issues/hand-raise.entity";
+
+import { AuditModule } from "./audit/audit.module";
+import { AuditLog } from "./audit/audit-log.entity";
 import { ElectionsModule } from "./elections/elections.module";
 import { Election } from "./elections/election.entity";
 import { GramaPanchayatModule } from "./grama-panchayat/grama-panchayat.module";
@@ -76,6 +80,10 @@ function resolveRedisUrl(): string | undefined {
 
 @Module({
   imports: [
+    ClsModule.forRoot({
+      global: true,
+      middleware: { mount: true },
+    }),
     // Sentry instrumentation (no-op unless SENTRY_DSN is set).
     SentryModule.forRoot(),
     ConfigModule.forRoot({ isGlobal: true, validate }),
@@ -194,6 +202,7 @@ function resolveRedisUrl(): string | undefined {
         GramaPanchayat,
         Notification,
         FcmToken,
+        AuditLog,
       ],
     }),
 
@@ -215,6 +224,7 @@ function resolveRedisUrl(): string | undefined {
     StatsModule,
     RemindersModule,
     MediaModule,
+    AuditModule,
   ],
   controllers: [HealthController],
   providers: [

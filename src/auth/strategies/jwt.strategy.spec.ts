@@ -32,7 +32,8 @@ describe("JwtStrategy — tokenVersion revocation", () => {
         return dbUser;
       },
     };
-    return new JwtStrategy(cache as any, userRepo as any);
+    const mockCls = { isActive: () => false, set: jest.fn(), get: jest.fn() };
+    return new JwtStrategy(cache as any, userRepo as any, mockCls as any);
   };
 
   // ── Fast path (cache hit) ──────────────────────────────────────────────
