@@ -816,7 +816,7 @@ export class UsersService {
   async hasAnyInteraction(userId: number): Promise<boolean> {
     const user = await this.repo.findOne({ where: { id: userId } });
     if (!user) return false;
-    return user.isChat || user.isMeeting || user.isPhoneCall;
+    return user.isChat || user.isMeeting || user.isPhoneCall || user.isDirectMeet;
   }
 
   async deleteAccount(userId: number) {

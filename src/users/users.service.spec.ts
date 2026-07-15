@@ -130,3 +130,56 @@ describe("UsersService — findAllVoters() pagination + shaping", () => {
     );
   });
 });
+
+describe("UsersService — hasAnyInteraction()", () => {
+  it("returns false if the user is not found", async () => {
+    const service = makeService({ repo: { findOne: jest.fn(async () => null) } });
+    const result = await service.hasAnyInteraction(1);
+    expect(result).toBe(false);
+  });
+
+  it("returns false if the user has no interactions", async () => {
+    const service = makeService({
+      repo: {
+        findOne: jest.fn(async () => ({
+          isChat: false,
+          isMeeting: false,
+          isPhoneCall: false,
+          isDirectMeet: false,
+        })),
+      },
+    });
+    const result = await service.hasAnyInteraction(1);
+    expect(result).toBe(false);
+  });
+
+  it("returns true if the user has only isDirectMeet interaction", async () => {
+    const service = makeService({
+      repo: {
+        findOne: jest.fn(async () => ({
+          isChat: false,
+          isMeeting: false,
+          isPhoneCall: false,
+          isDirectMeet: true,
+        })),
+      },
+    });
+    const result = await service.hasAnyInteraction(1);
+    expect(result).toBe(true);
+  });
+
+  it("returns true if the user has other interactions set", async () => {
+    const service = makeService({
+      repo: {
+        findOne: jest.fn(async () => ({
+          isChat: true,
+          isMeeting: false,
+          isPhoneCall: false,
+          isDirectMeet: false,
+        })),
+      },
+    });
+    const result = await service.hasAnyInteraction(1);
+    expect(result).toBe(true);
+  });
+});
