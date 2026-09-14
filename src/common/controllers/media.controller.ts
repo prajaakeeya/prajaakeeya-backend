@@ -31,6 +31,10 @@ import { Roles } from "../decorators/roles.decorator";
 import { CurrentUser, AuthUser } from "../decorators/current-user.decorator";
 import { MediaService } from "../services/media.service";
 import {
+  MAX_MEDIA_UPLOAD_BYTES,
+  mediaFileFilter,
+} from "../upload.constants";
+import {
   UploadAspirantDocumentDto,
   VerifyDocumentDto,
   UploadAdminDocumentDto,
@@ -74,7 +78,12 @@ export class MediaController {
 
   // User profile picture
   @Post("profile-picture")
-  @UseInterceptors(FileInterceptor("file"))
+  @UseInterceptors(
+    FileInterceptor("file", {
+      limits: { fileSize: MAX_MEDIA_UPLOAD_BYTES, files: 1 },
+      fileFilter: mediaFileFilter,
+    }),
+  )
   @ApiConsumes("multipart/form-data")
   @ApiOperation({ summary: "Upload or update user profile picture" })
   @ApiBody({
@@ -116,7 +125,12 @@ export class MediaController {
 
   // Aspirant document uploads
   @Post("aspirant/:aspirantId/document")
-  @UseInterceptors(FileInterceptor("file"))
+  @UseInterceptors(
+    FileInterceptor("file", {
+      limits: { fileSize: MAX_MEDIA_UPLOAD_BYTES, files: 1 },
+      fileFilter: mediaFileFilter,
+    }),
+  )
   @ApiConsumes("multipart/form-data")
   @ApiOperation({ summary: "Upload aspirant document (SOP, Agreement, etc.)" })
   @ApiBody({
@@ -190,7 +204,12 @@ export class MediaController {
   // Admin - upload global documents
   @Post("admin/document")
   @Roles("admin")
-  @UseInterceptors(FileInterceptor("file"))
+  @UseInterceptors(
+    FileInterceptor("file", {
+      limits: { fileSize: MAX_MEDIA_UPLOAD_BYTES, files: 1 },
+      fileFilter: mediaFileFilter,
+    }),
+  )
   @ApiConsumes("multipart/form-data")
   @ApiOperation({ summary: "Admin - Upload global document template" })
   @ApiBody({
@@ -266,7 +285,12 @@ export class MediaController {
 
   // User - sign and upload admin document
   @Post("sign-document")
-  @UseInterceptors(FileInterceptor("file"))
+  @UseInterceptors(
+    FileInterceptor("file", {
+      limits: { fileSize: MAX_MEDIA_UPLOAD_BYTES, files: 1 },
+      fileFilter: mediaFileFilter,
+    }),
+  )
   @ApiConsumes("multipart/form-data")
   @ApiOperation({ summary: "Upload signed document" })
   @ApiBody({
