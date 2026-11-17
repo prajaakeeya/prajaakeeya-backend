@@ -99,10 +99,12 @@ export class AspirantsController {
 
   @Get("by-constituency")
   @Public()
+  @UseGuards(OptionalJwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({
     summary: "Get all aspirants by election and constituency",
     description:
-      "Pass the election ID and constituency ID (parliamentary/assembly/ward depending on election type)",
+      "Public endpoint. A valid Bearer token optionally personalizes rating and contact-interaction fields for the authenticated voter. User identity is never accepted from a query parameter.",
   })
   @ApiQuery({
     name: "electionId",
@@ -116,23 +118,16 @@ export class AspirantsController {
     type: Number,
     description: "Constituency ID from GET /elections/:type/constituencies",
   })
-  @ApiQuery({
-    name: "userId",
-    required: false,
-    type: Number,
-    description:
-      "Optional user ID — if passed, each meeting/visit includes an isRated flag",
-  })
   @ApiResponse({ status: 200, description: "Aspirants returned successfully" })
   findByConstituency(
     @Query("electionId") electionId: string,
     @Query("constituencyId") constituencyId: string,
-    @Query("userId") userId?: string,
+    @CurrentUser() user?: AuthUser,
   ) {
     return this.aspirantsService.findByConstituency(
       Number(electionId),
       Number(constituencyId),
-      userId ? Number(userId) : undefined,
+      user?.id,
     );
   }
 
